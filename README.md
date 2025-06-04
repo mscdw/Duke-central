@@ -9,9 +9,9 @@ This project is a FastAPI web application that acts as a central web service whi
 Create a `.env` file in the project root with the following variables:
 
 ```
-MONGODB_URI="your-mongodb-database-url"
+MONGODB_BASE="your-mongodb-database-url"
 MONGODB_DB="your-monogodb-database-name"
-AVIGILON_PROXY_URL="your-avigilon-proxy-endpoint"
+AVIGILON_PROXY_BASE="your-avigilon-proxy-endpoint"
 VERIFY_SSL=False
 ```
 

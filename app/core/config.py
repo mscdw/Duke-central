@@ -2,11 +2,10 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    MONGODB_URI: str = ""
+    MONGODB_BASE: str = ""
     MONGODB_DB: str = ""
-    AVIGILON_PROXY_URL: str = ""
+    AVIGILON_PROXY_BASE: str = ""
     VERIFY_SSL: bool = False
-    LOG_LEVEL: str = "INFO"
     SESSION_TOKEN: str = ""
     class Config:
         env_file = ".env"
