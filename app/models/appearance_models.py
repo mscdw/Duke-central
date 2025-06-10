@@ -1,6 +1,12 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from datetime import datetime
+
+class ROI(BaseModel):
+    left: float
+    top: float
+    right: float
+    bottom: float
 
 class AppearanceEvent(BaseModel):
     objectId: int
@@ -9,7 +15,10 @@ class AppearanceEvent(BaseModel):
     cameraId: str
     eventStartTime: datetime
     eventEndTime: datetime
-    eventTimestamp: datetime
+    objectROI: Optional[ROI] = None
+    objectTimeStamp: Optional[datetime] = None
+    faceROI: Optional[ROI] = None
+    faceTimeStamp: Optional[datetime] = None
     imageBaseString: str
 
 class AppearanceRequest(BaseModel):

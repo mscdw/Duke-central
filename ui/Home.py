@@ -26,7 +26,10 @@ try:
                         "cameraId": event.get("cameraId"),
                         "eventStartTime": event.get("eventStartTime"),
                         "eventEndTime": event.get("eventEndTime"),
-                        "eventTimestamp": event.get("eventTimestamp"),
+                        "objectROI": event.get("objectROI"),
+                        "objectTimeStamp": event.get("objectTimeStamp"),
+                        "faceROI": event.get("faceROI"),
+                        "faceTimeStamp": event.get("faceTimeStamp"),
                     })
                 with cols[1]:
                     img_b64 = event.get("imageBaseString")
