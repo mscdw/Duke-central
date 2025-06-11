@@ -1,15 +1,37 @@
 import streamlit as st
 import requests
 import base64
+from datetime import datetime, date
 
 st.set_page_config(page_title="Appearance Events", layout="wide")
 st.title("Appearance Events")
 
 API_URL = st.secrets.get("API_BASE", "http://localhost:8001/get-appearances")
 
+col1, col2 = st.columns([2, 2])
+today = date.today()
+with col1:
+    start_dt = st.date_input("Start date", value=today, key="start_dt")
+    start_time = st.time_input("Start time", value=datetime.min.time(), key="start_time")
+with col2:
+    end_dt = st.date_input("End date", value=today, key="end_dt")
+    end_time = st.time_input("End time", value=datetime.max.time().replace(microsecond=0), key="end_time")
+
+params = {}
+if start_dt:
+    if start_time:
+        params["start_date"] = datetime.combine(start_dt, start_time).isoformat()
+    else:
+        params["start_date"] = datetime.combine(start_dt, datetime.min.time()).isoformat()
+if end_dt:
+    if end_time:
+        params["end_date"] = datetime.combine(end_dt, end_time).isoformat()
+    else:
+        params["end_date"] = datetime.combine(end_dt, datetime.max.time()).isoformat()
+
 try:
     with st.spinner("Fetching appearance events..."):
-        resp = requests.get(API_URL)
+        resp = requests.get(API_URL, params=params)
         resp.raise_for_status()
         events = resp.json()
         if not events:
