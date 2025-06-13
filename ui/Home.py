@@ -1,12 +1,13 @@
 import streamlit as st
-import requests
 import base64
 from datetime import datetime, date
+from utils.api_logger import logged_request
+from utils.setup import global_page_setup
 
 st.set_page_config(page_title="Appearance Events", layout="wide")
 st.title("Appearance Events")
 
-API_URL = st.secrets.get("API_BASE", "http://localhost:8001/get-appearances")
+API_URL = st.secrets.get("API_BASE", "http://localhost:8001")
 
 col1, col2 = st.columns([2, 2])
 today = date.today()
@@ -31,7 +32,7 @@ if end_dt:
 
 try:
     with st.spinner("Fetching appearance events..."):
-        resp = requests.get(API_URL, params=params)
+        resp = logged_request("get", f"{API_URL}/get-appearances", params=params)
         resp.raise_for_status()
         events = resp.json()
         if not events:
@@ -64,3 +65,5 @@ try:
                         st.info("No image available for this event.")
 except Exception as e:
     st.error(f"Error fetching events: {e}")
+
+global_page_setup()
