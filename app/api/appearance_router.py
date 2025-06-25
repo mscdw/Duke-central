@@ -1,4 +1,4 @@
-import logging
+from app.core.logging import get_logger
 import json
 from datetime import datetime
 from fastapi import APIRouter, Query
@@ -7,7 +7,7 @@ from app.models.appearance_models import AppearanceRequest, AppearanceEvent
 from app.services.appearance_services import store_appearances_data, get_appearances_data
 
 router = APIRouter()
-logger = logging.getLogger("appearance-endpoints")
+logger = get_logger("appearance-endpoints")
 
 @router.post("/store-appearances", response_class=Response)
 def store_appearances(request: AppearanceRequest):

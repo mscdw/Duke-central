@@ -1,8 +1,8 @@
-import logging
 from fastapi import FastAPI
 from app.api.appearance_router import router
+from app.core.logging import get_logger
 
-logger = logging.getLogger("central-base")
+logger = get_logger("central-base")
 
 app = FastAPI(
     title="Central analytics app",
