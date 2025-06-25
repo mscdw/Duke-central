@@ -8,6 +8,12 @@ class ROI(BaseModel):
     right: float
     bottom: float
 
+class Snapshot(BaseModel):
+    type: str
+    timestamp: datetime
+    roi: ROI
+    description: Optional[str] = None
+
 class AppearanceEvent(BaseModel):
     objectId: int
     confidence: float
@@ -15,10 +21,8 @@ class AppearanceEvent(BaseModel):
     cameraId: str
     eventStartTime: datetime
     eventEndTime: datetime
-    objectROI: Optional[ROI] = None
-    objectTimeStamp: Optional[datetime] = None
-    faceROI: Optional[ROI] = None
-    faceTimeStamp: Optional[datetime] = None
+    snapshots: List[Snapshot]
+    siteName: str
     imageBaseString: str
 
 class AppearanceRequest(BaseModel):

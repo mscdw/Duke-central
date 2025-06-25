@@ -73,3 +73,43 @@ ui/         # Streamlit frontend
 ```
 
 ---
+
+## Duke Central Service Setup (NSSM)
+
+Use [NSSM](https://nssm.cc) to run Duke Central as Windows services:
+
+### FastAPI Backend
+
+* **Service Name**: `DukeCentralBackend`
+* **Path**: `C:\path\to\venv\Scripts\python.exe`
+* **Startup Dir**: `C:\path\to\Duke-central`
+* **Arguments**:
+
+  ```
+  -m uvicorn app.main:app --host 0.0.0.0 --port 8001
+  ```
+
+### Streamlit Frontend
+
+* **Service Name**: `DukeCentralFrontend`
+* **Path**: `C:\path\to\venv\Scripts\python.exe`
+* **Startup Dir**: `C:\path\to\Duke-central`
+* **Arguments**:
+
+  ```
+  -m streamlit run .\ui\Home.py --server.port 8502 --server.headless true
+  ```
+
+### Manage Services
+
+```bash
+net stop DukeCentralBackend
+net start DukeCentralBackend
+
+net stop DukeCentralFrontend
+net start DukeCentralFrontend
+```
+
+If mongod process is not running start it first and then restart the DukeCentralBackend
+
+---
