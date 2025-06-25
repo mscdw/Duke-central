@@ -24,7 +24,7 @@ def get_appearances(
 ):
     start_dt = datetime.fromisoformat(start_date) if start_date else None
     end_dt = datetime.fromisoformat(end_date) if end_date else None
-    print(f"Fetching appearances from {start_dt} to {end_dt}")
+    logger.info(f"Fetching appearances from {start_dt} to {end_dt}")
     appearances = get_appearances_data(start_dt, end_dt)
     if appearances:
         return [AppearanceEvent(**a) for a in appearances]
