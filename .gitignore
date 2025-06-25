@@ -3,3 +3,4 @@ venv/
 __pycache__/
 *.toml
 .DS_Store
+.aws/

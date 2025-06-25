@@ -13,4 +13,4 @@ def get_all_appearance_events(start_date: datetime = None, end_date: datetime = 
         query["eventStartTime"] = {"$gte": start_date}
     elif end_date:
         query["eventStartTime"] = {"$lte": end_date}
-    return list(db.appearances.find(query, {"_id": 0}))
+    return list(db.appearances.find(query))

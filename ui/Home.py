@@ -3,6 +3,8 @@ import base64
 from datetime import datetime, date
 from utils.api_logger import logged_request
 from utils.setup import global_page_setup
+from io import BytesIO
+from PIL import Image
 
 st.set_page_config(page_title="Appearance Events", layout="wide")
 st.title("Appearance Events")
@@ -43,6 +45,7 @@ try:
                 cols = st.columns(2)
                 with cols[0]:
                     st.json({
+                        "personId": event.get("personId"),
                         "objectId": event.get("objectId"),
                         "confidence": event.get("confidence"),
                         "generatorId": event.get("generatorId"),
@@ -51,14 +54,27 @@ try:
                         "eventEndTime": event.get("eventEndTime"),
                         "snapshots": event.get("snapshots"),
                         "siteName": event.get("siteName"),
+                        "personFace": event.get("personFace"),
                     })
                 with cols[1]:
                     img_b64 = event.get("imageBaseString")
                     if img_b64:
                         try:
-                            st.image(base64.b64decode(img_b64), caption="Event Image")
-                        except Exception:
-                            st.warning("Could not decode imageBaseString.")
+                            img_bytes = base64.b64decode(img_b64)
+                            image = Image.open(BytesIO(img_bytes))
+                            st.image(image, caption="Event Image")
+                            person_face = event.get("personFace")
+                            if person_face and person_face.get("BoundingBox"):
+                                bbox = person_face["BoundingBox"]
+                                width, height = image.size
+                                left = int(bbox["Left"] * width)
+                                top = int(bbox["Top"] * height)
+                                right = int((bbox["Left"] + bbox["Width"]) * width)
+                                bottom = int((bbox["Top"] + bbox["Height"]) * height)
+                                cropped_face = image.crop((left, top, right, bottom))
+                                st.image(cropped_face, caption="Cropped Face")
+                        except Exception as e:
+                            st.warning(f"Could not decode or process image: {e}")
                     else:
                         st.info("No image available for this event.")
 except Exception as e:

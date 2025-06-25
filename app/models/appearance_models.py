@@ -8,6 +8,18 @@ class ROI(BaseModel):
     right: float
     bottom: float
 
+class BoundingBox(BaseModel):
+    Width: float
+    Height: float
+    Left: float
+    Top: float
+
+class FaceInfo(BaseModel):
+    FaceId: str
+    BoundingBox: BoundingBox
+    ImageId: str
+    Confidence: float
+
 class Snapshot(BaseModel):
     type: str
     timestamp: datetime
@@ -24,6 +36,8 @@ class AppearanceEvent(BaseModel):
     snapshots: List[Snapshot]
     siteName: str
     imageBaseString: str
+    personId: Optional[str] = None
+    personFace: Optional[FaceInfo] = None
 
 class AppearanceRequest(BaseModel):
     total_length: int
