@@ -2,7 +2,7 @@ import streamlit as st
 import base64
 from datetime import datetime, date
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageOps
 from utils.api_logger import logged_request
 
 st.set_page_config(page_title="Faces Gallery", layout="wide")
@@ -72,7 +72,7 @@ for event in events:
     if pid not in faces and face_img:
         faces[pid] = {"image": face_img, "personId": pid}
 
-main_cols = st.columns([2, 10])
+main_cols = st.columns([3, 9])
 face_keys = list(faces.keys())
 if "selected_pid" not in st.session_state:
     st.session_state["selected_pid"] = None
@@ -82,15 +82,18 @@ def select_pid(pid):
 
 with main_cols[0]:
     st.markdown(f"#### People ({len(face_keys)})")
+    FACE_SIZE = (128, 128)
     for i in range(0, len(face_keys), 2):
         row = st.columns(2)
         for j in range(2):
             if i + j < len(face_keys):
                 pid = face_keys[i + j]
                 caption = f"{pid}"
+                face_img = faces[pid]["image"]
+                face_img_resized = ImageOps.pad(face_img, FACE_SIZE, color=(0,0,0))
                 if row[j].button(" ", key=f"facebtn_{pid}", help=caption):
                     select_pid(pid)
-                row[j].image(faces[pid]["image"], caption=caption, use_container_width=True)
+                row[j].image(face_img_resized, caption=caption, use_container_width=True)
 
 with main_cols[1]:
     if st.session_state["selected_pid"]:
@@ -107,8 +110,9 @@ with main_cols[1]:
                     image = Image.open(BytesIO(img_bytes))
                     event_time = event.get("eventStartTime")
                     site = event.get("siteName", "Unknown Site")
-                    caption = f"{event_time} | {site}"
-                    st.image(image, caption=caption, use_container_width=True)
+                    label = f"{event_time} | {site}"
+                    st.markdown(f"### {label}")
+                    st.image(image, use_container_width=True)
                 except Exception:
                     st.warning("Could not decode image.")
     else:
