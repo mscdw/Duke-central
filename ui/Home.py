@@ -99,6 +99,25 @@ else:
                         bottom = int((bbox["Top"] + bbox["Height"]) * height)
                         cropped_face = image.crop((left, top, right, bottom))
                         st.image(cropped_face, caption="Cropped Face")
+                    person_id = event.get("personId")
+                    if person_id:
+                        person_url = f"PersonOccurrences?personId={person_id}"
+                        st.markdown(f"""
+                        <div style="margin: 15px 0; text-align: center;">
+                            <a href="{person_url}" target="_blank" style="
+                                display: inline-block;
+                                background-color: #ff4b4b;
+                                color: white;
+                                padding: 8px 16px;
+                                text-decoration: none;
+                                border-radius: 4px;
+                                font-weight: bold;
+                            ">View All Occurrences</a>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.info("No personId available for this event")
+                        
                 except Exception as e:
                     st.warning(f"Could not decode or process image: {e}")
             else:

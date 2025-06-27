@@ -4,6 +4,7 @@ from datetime import datetime, date
 from io import BytesIO
 from PIL import Image, ImageOps
 from utils.api_logger import logged_request
+from utils.setup import global_page_setup
 
 st.set_page_config(page_title="Faces Gallery", layout="wide")
 st.title("Faces Gallery")
@@ -102,6 +103,21 @@ with main_cols[1]:
         unique_sites = set(event.get("siteName", "Unknown Site") for event in filtered_events)
         st.markdown(f"### All images for personId: {pid}")
         st.markdown(f"**Total images: {len(filtered_events)} | Sites: {len(unique_sites)}**")
+        person_url = f"PersonOccurrences?personId={pid}"
+        st.markdown(f"""
+        <div style="margin: 10px 0;">
+            <a href="{person_url}" target="_blank" style="
+                display: inline-block;
+                background-color: #ff4b4b;
+                color: white;
+                padding: 8px 16px;
+                text-decoration: none;
+                border-radius: 4px;
+                font-weight: bold;
+            ">View All Occurrences</a>
+        </div>
+        """, unsafe_allow_html=True)
+        
         for event in filtered_events:
             img_b64 = event.get("imageBaseString")
             if img_b64:
@@ -117,3 +133,5 @@ with main_cols[1]:
                     st.warning("Could not decode image.")
     else:
         st.info("Click a face to view all images for that person.")
+
+global_page_setup()

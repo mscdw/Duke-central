@@ -8,7 +8,7 @@ from app.core.logging import get_logger
 logger = get_logger("aws-services")
 
 DEFAULT_COLLECTION_ID = 'new-face-collection-2'
-rekognition = boto3.client("rekognition")
+rekognition = boto3.client("rekognition", region_name="us-east-2")
 
 def create_collection(collection_id: str = DEFAULT_COLLECTION_ID):
     """Create a new Rekognition collection."""
