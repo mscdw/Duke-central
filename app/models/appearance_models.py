@@ -14,6 +14,22 @@ class BoundingBox(BaseModel):
     Left: float
     Top: float
 
+    def to_pixel_box(self, image_width: int, image_height: int) -> tuple[int, int, int, int]:
+        """
+        Calculates the (left, top, right, bottom) pixel tuple for Pillow's crop method.
+
+        This is the most direct and reliable way to convert the coordinates.
+        - left = Left_ratio * image_width
+        - top = Top_ratio * image_height
+        - right = (Left_ratio + Width_ratio) * image_width
+        - bottom = (Top_ratio + Height_ratio) * image_height
+        """
+        left_px = int(self.Left * image_width)
+        top_px = int(self.Top * image_height)
+        right_px = int((self.Left + self.Width) * image_width)
+        bottom_px = int((self.Top + self.Height) * image_height)
+        return (left_px, top_px, right_px, bottom_px)
+
 class FaceInfo(BaseModel):
     FaceId: str
     BoundingBox: BoundingBox
