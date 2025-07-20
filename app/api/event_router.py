@@ -1,9 +1,9 @@
 import json
-from fastapi import APIRouter
-from fastapi.responses import Response
+from fastapi import APIRouter, Query
+from fastapi.responses import Response, JSONResponse
 from app.core.logging import get_logger
-from app.models.event_models import EventRequest
-from app.services.event_services import store_events_data
+from app.models.event_models import EventRequest, EventMediaUpdateRequest
+from app.services.event_services import store_events_data, get_events_for_enrichment_data, update_events_with_media
 
 router = APIRouter()
 logger = get_logger("event-endpoints")
@@ -20,3 +20,32 @@ def store_events(request: EventRequest):
     else:
         # Following the pattern of returning an empty JSON object on service failure
         return Response(content="{}", status_code=503, media_type="application/json")
+
+
+@router.get("/events-for-enrichment", response_class=JSONResponse)
+def get_events_for_enrichment(
+    type: str,
+    limit: int = Query(50, ge=1, le=100)
+):
+    """
+    Gets events that need their media field populated.
+    This is used by the media enrichment scheduler.
+    """
+    logger.info(f"Request received for events to enrich. Type: {type}, Limit: {limit}")
+    result = get_events_for_enrichment_data(event_type=type, limit=limit)
+    return JSONResponse(content=result, status_code=200)
+
+
+@router.post("/events/media", response_class=JSONResponse)
+def update_events_media(request: EventMediaUpdateRequest):
+    """
+    Updates a batch of events with their media data (e.g., base64 image string).
+    This is used by the media enrichment scheduler.
+    """
+    logger.info(f"Received request to update media for {len(request.updates)} events.")
+    resp = update_events_with_media(request)
+    if resp:
+        return JSONResponse(content=resp, status_code=200)
+    else:
+        # Following the pattern of returning an empty JSON object on service failure
+        return JSONResponse(content={}, status_code=503)
