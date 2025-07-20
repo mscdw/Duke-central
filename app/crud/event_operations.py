@@ -1,8 +1,9 @@
 from app.db.mongodb import db
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.core.logging import get_logger
-from app.models.event_models import EventMediaUpdate
+from app.models.event_models import EventMediaUpdate, EventResponse
 from bson import ObjectId
+from datetime import datetime
 from pymongo import UpdateOne
 
 logger = get_logger("event-operations")
@@ -91,3 +92,50 @@ def bulk_update_events_media(updates: List[Dict[str, Any]]) -> int:
 
     result = collection.bulk_write(bulk_operations, ordered=False)
     return result.modified_count
+
+
+def get_events(start_date: Optional[datetime], end_date: Optional[datetime]) -> List[EventResponse]:
+    """
+    Retrieves events from the 'events' collection that fall within a specified date range.
+    This version is corrected to match the actual database schema and $project rules.
+    """
+    collection = db["events"]
+    pipeline = []
+
+    # STAGE 1: Convert the 'timestamp' string field into a true BSON Date object.
+    pipeline.append({
+        "$addFields": {
+            "event_date": {"$toDate": "$timestamp"}
+        }
+    })
+
+    # STAGE 2: Build the match stage using the new 'event_date' field.
+    match_filter = {}
+    if start_date:
+        match_filter["$gte"] = start_date
+    if end_date:
+        match_filter["$lte"] = end_date
+
+    if match_filter:
+        pipeline.append({"$match": {"event_date": match_filter}})
+
+    # STAGE 3: Sort the results by timestamp.
+    pipeline.append({"$sort": {"event_date": 1}})
+
+    # STAGE 4: Project the final shape to match the EventResponse model.
+    # THIS STAGE CONTAINS THE FIX.
+    pipeline.append({
+        "$project": {
+            "_id": 0,
+            "eventId": {"$toString": "$_id"},
+            "title": "$type",
+            "start": "$timestamp",
+            "end": "$timestamp",
+            # Use $literal to assign a boolean value instead of excluding the field.
+            "allDay": {"$literal": False},
+            "is_all_day": {"$literal": False}
+        }
+    })
+
+    events_cursor = collection.aggregate(pipeline)
+    return list(events_cursor)

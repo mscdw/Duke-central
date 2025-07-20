@@ -1,7 +1,8 @@
-from app.crud.event_operations import insert_events, get_events_for_enrichment, bulk_update_events_media
+from app.crud.event_operations import insert_events, get_events_for_enrichment, bulk_update_events_media, get_events
 from app.models.event_models import EventRequest, EventMediaUpdateRequest
 from app.core.logging import get_logger
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from datetime import datetime
 
 logger = get_logger("event-services")
 
@@ -28,6 +29,25 @@ def store_events_data(request: EventRequest) -> Dict[str, Any] | None:
         logger.error(f"Could not store events. Details: {e}")
         return None
 
+
+def get_events_data(start_date: datetime | None, end_date: datetime | None) -> List[Dict[str, Any]] | None:
+    """
+    Retrieves events within a specified date range from the CRUD layer.
+
+    Args:
+        start_date: The start of the date range.
+        end_date: The end of the date range.
+
+    Returns:
+        A list of events, or None if an error occurs.
+    """
+    try:
+        events = get_events(start_date=start_date, end_date=end_date)
+        logger.info(f"Retrieved {len(events)} events from {start_date} to {end_date}.")
+        return events
+    except Exception as e:
+        logger.error(f"Could not retrieve events. Details: {e}", exc_info=True)
+        return None
 
 def get_events_for_enrichment_data(event_type: str, limit: int) -> Dict[str, Any]:
     """
