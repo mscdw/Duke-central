@@ -56,8 +56,15 @@ class FaceProcessingInfo(BaseModel):
     """
     processed: bool
     processed_at: str  # ISO 8601 timestamp string
-    match_result: Literal["matched", "indexed", "no_face", "error"]
+    
+    # 1. Added "low_quality_face" to the list of possible outcomes.
+    match_result: Literal["matched", "indexed", "no_face", "low_quality_face", "error"]
+    
     new_face_indexed: bool
+    
+    # 2. Added new optional field to store the specific rejection reasons from Rekognition.
+    rejection_reasons: Optional[List[str]] = None
+    
     error_message: Optional[str] = None
 
 
@@ -65,19 +72,19 @@ class EventFacialRecognitionUpdate(BaseModel):
     """
     Defines the structure for a single event facial recognition update.
     This now includes detailed processing status.
+    (No changes needed in this model itself, but it benefits from the changes in FaceProcessingInfo).
     """
     eventId: str
-    # personId and personFace are now optional, as they only exist for "matched" or "indexed" statuses.
     personId: Optional[str] = None
     personFace: Optional[FaceInfo] = None
-    # This new field contains the detailed processing outcome.
     face_processing: FaceProcessingInfo
 
 
 class EventFacialRecognitionUpdateRequest(BaseModel):
     """
     Defines the request body for updating events with facial recognition data.
-    The example is updated to reflect the new, more detailed payload.
+    The example is updated to reflect the new, more detailed payload, 
+    including a new example for the "low_quality_face" case.
     """
     updates: List[EventFacialRecognitionUpdate]
 
@@ -98,7 +105,22 @@ class EventFacialRecognitionUpdateRequest(BaseModel):
                             "processed": True,
                             "processed_at": "2023-10-27T10:00:00Z",
                             "match_result": "matched",
-                            "new_face_indexed": False
+                            "new_face_indexed": False,
+                            "rejection_reasons": None,
+                            "error_message": None
+                        }
+                    },
+                    {
+                        "eventId": "event-id-low-quality",  # <-- NEW EXAMPLE
+                        "personId": None,
+                        "personFace": None,
+                        "face_processing": {
+                            "processed": True,
+                            "processed_at": "2023-10-27T10:03:00Z",
+                            "match_result": "low_quality_face",
+                            "new_face_indexed": False,
+                            "rejection_reasons": ["LOW_SHARPNESS", "SMALL_BOUNDING_BOX"],
+                            "error_message": None
                         }
                     },
                     {
@@ -109,7 +131,9 @@ class EventFacialRecognitionUpdateRequest(BaseModel):
                             "processed": True,
                             "processed_at": "2023-10-27T10:01:00Z",
                             "match_result": "no_face",
-                            "new_face_indexed": False
+                            "new_face_indexed": False,
+                            "rejection_reasons": None,
+                            "error_message": None
                         }
                     },
                      {
@@ -121,6 +145,7 @@ class EventFacialRecognitionUpdateRequest(BaseModel):
                             "processed_at": "2023-10-27T10:02:00Z",
                             "match_result": "error",
                             "new_face_indexed": False,
+                            "rejection_reasons": None,
                             "error_message": "Rekognition API call failed."
                         }
                     }
