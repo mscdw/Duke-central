@@ -2,9 +2,17 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, Query
 from fastapi.responses import Response, JSONResponse
+from typing import Dict, Any
 from app.core.logging import get_logger
-from app.models.event_models import EventRequest, EventMediaUpdateRequest
-from app.services.event_services import get_events_data, store_events_data, get_events_for_enrichment_data, update_events_with_media
+from app.models.event_models import EventRequest, EventMediaUpdateRequest, EventFacialRecognitionUpdateRequest
+from app.services.event_services import (
+    get_events_data,
+    store_events_data,
+    get_events_for_enrichment_data,
+    update_events_with_media,
+    get_events_for_facial_recognition_data,
+    update_events_with_facial_recognition_data,
+)
 
 router = APIRouter()
 logger = get_logger("event-endpoints")
@@ -66,3 +74,27 @@ def get_events(
 
     result = get_events_data(start_date=start_dt, end_date=end_dt)
     return JSONResponse(content=result if result is not None else [], status_code=200)
+
+
+@router.get("/events/for-recognition", response_model=Dict[str, Any], tags=["Facial Recognition"])
+def get_events_for_facial_recognition_route(limit: int = Query(100, ge=1, le=1000)):
+    """
+    Retrieves events that have an image but have not yet been processed for
+    facial recognition. This is intended to be called by a scheduler to
+    process events in batches.
+    """
+    return get_events_for_facial_recognition_data(limit=limit)
+
+
+@router.post("/events/with-recognition", response_class=JSONResponse, tags=["Facial Recognition"])
+def update_events_with_recognition_route(request: EventFacialRecognitionUpdateRequest):
+    """
+    Updates a batch of events with their facial recognition data (personId and personFace).
+    This is intended to be called by a scheduler after processing events.
+    """
+    resp = update_events_with_facial_recognition_data(request)
+    if resp:
+        return JSONResponse(content=resp, status_code=200)
+    else:
+        # Following the pattern of returning an empty JSON object on service failure
+        return JSONResponse(content={}, status_code=503)

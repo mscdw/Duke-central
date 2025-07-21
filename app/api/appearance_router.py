@@ -2,7 +2,7 @@ from app.core.logging import get_logger
 import json
 from datetime import datetime
 from fastapi import APIRouter, Query
-from fastapi.responses import  Response
+from fastapi.responses import Response
 from app.models.appearance_models import AppearanceRequest, AppearanceEvent
 from app.services.appearance_services import store_appearances_data, get_appearances_data
 

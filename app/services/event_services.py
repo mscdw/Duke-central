@@ -1,5 +1,5 @@
-from app.crud.event_operations import insert_events, get_events_for_enrichment, bulk_update_events_media, get_events
-from app.models.event_models import EventRequest, EventMediaUpdateRequest
+from app.crud.event_operations import insert_events, get_events_for_enrichment, bulk_update_events_media, get_events, get_events_for_facial_recognition, bulk_update_events_with_facial_recognition
+from app.models.event_models import EventRequest, EventMediaUpdateRequest, EventFacialRecognitionUpdateRequest
 from app.core.logging import get_logger
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -69,6 +69,25 @@ def get_events_for_enrichment_data(event_type: str, limit: int) -> Dict[str, Any
         return {"events": []}
 
 
+def get_events_for_facial_recognition_data(limit: int) -> Dict[str, Any]:
+    """
+    Retrieves events that need facial recognition from the CRUD layer.
+
+    Args:
+        limit: The maximum number of events to retrieve.
+
+    Returns:
+        A dictionary containing a list of events.
+    """
+    try:
+        events = get_events_for_facial_recognition(limit)
+        logger.info(f"Found {len(events)} events for facial recognition.")
+        return {"events": events}
+    except Exception as e:
+        logger.error(f"Could not retrieve events for facial recognition. Details: {e}", exc_info=True)
+        return {"events": []}
+
+
 def update_events_with_media(request: EventMediaUpdateRequest) -> Dict[str, Any] | None:
     """
     Processes and passes event media updates to the CRUD layer for bulk update.
@@ -81,3 +100,22 @@ def update_events_with_media(request: EventMediaUpdateRequest) -> Dict[str, Any]
     updated_count = bulk_update_events_media(updates_to_perform)
     logger.info(f"Successfully updated {updated_count} events with media.")
     return {"message": f"Successfully updated {updated_count} events.", "updated_count": updated_count}
+
+
+def update_events_with_facial_recognition_data(request: EventFacialRecognitionUpdateRequest) -> Dict[str, Any] | None:
+    """
+    Processes and passes event facial recognition updates to the CRUD layer for bulk update.
+    """
+    if not request.updates:
+        logger.warning("Received request to update facial recognition for an empty list of events.")
+        return {"message": "No event updates provided.", "updated_count": 0}
+
+    updates_to_perform = [update.model_dump() for update in request.updates]
+
+    try:
+        updated_count = bulk_update_events_with_facial_recognition(updates_to_perform)
+        logger.info(f"Successfully updated {updated_count} events with facial recognition data.")
+        return {"message": f"Successfully updated {updated_count} events.", "updated_count": updated_count}
+    except Exception as e:
+        logger.error(f"Could not update events with facial recognition data. Details: {e}", exc_info=True)
+        return None
