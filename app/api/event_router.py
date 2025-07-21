@@ -5,6 +5,7 @@ from fastapi.responses import Response, JSONResponse
 from typing import Dict, Any
 from app.core.logging import get_logger
 from app.models.event_models import EventRequest, EventMediaUpdateRequest, EventFacialRecognitionUpdateRequest
+# --- 1. IMPORT THE NEW SERVICE FUNCTION ---
 from app.services.event_services import (
     get_events_data,
     store_events_data,
@@ -12,10 +13,13 @@ from app.services.event_services import (
     update_events_with_media,
     get_events_for_facial_recognition_data,
     update_events_with_facial_recognition_data,
+    get_latest_event_timestamp_data # <-- Add this import
 )
 
 router = APIRouter()
 logger = get_logger("event-endpoints")
+
+# --- NO CHANGES TO ANY OF THE EXISTING FUNCTIONS ---
 
 @router.post("/store-events", response_class=Response)
 def store_events(request: EventRequest):
@@ -27,7 +31,6 @@ def store_events(request: EventRequest):
     if resp:
         return Response(content=json.dumps(resp), status_code=200, media_type="application/json")
     else:
-        # Following the pattern of returning an empty JSON object on service failure
         return Response(content="{}", status_code=503, media_type="application/json")
 
 
@@ -56,7 +59,6 @@ def update_events_media(request: EventMediaUpdateRequest):
     if resp:
         return JSONResponse(content=resp, status_code=200)
     else:
-        # Following the pattern of returning an empty JSON object on service failure
         return JSONResponse(content={}, status_code=503)
 
 
@@ -76,12 +78,24 @@ def get_events(
     return JSONResponse(content=result if result is not None else [], status_code=200)
 
 
+# --- 2. ADD THE NEW API ROUTE ---
+@router.get("/events/latest-timestamp", response_class=JSONResponse, tags=["Events", "Schedulers"])
+def get_latest_event_timestamp_route():
+    """
+    Retrieves the timestamp of the most recently stored event.
+    This is used by schedulers to determine the starting point for fetching new events,
+    preventing the re-processing of old data.
+    """
+    logger.info("Request received for the latest event timestamp.")
+    result = get_latest_event_timestamp_data()
+    return JSONResponse(content=result, status_code=200)
+# --- END OF NEW ROUTE ---
+
+
 @router.get("/events/for-recognition", response_model=Dict[str, Any], tags=["Facial Recognition"])
 def get_events_for_facial_recognition_route(limit: int = Query(100, ge=1, le=1000)):
     """
-    Retrieves events that have an image but have not yet been processed for
-    facial recognition. This is intended to be called by a scheduler to
-    process events in batches.
+    Retrieves events that need facial recognition processing.
     """
     return get_events_for_facial_recognition_data(limit=limit)
 
@@ -89,12 +103,10 @@ def get_events_for_facial_recognition_route(limit: int = Query(100, ge=1, le=100
 @router.post("/events/with-recognition", response_class=JSONResponse, tags=["Facial Recognition"])
 def update_events_with_recognition_route(request: EventFacialRecognitionUpdateRequest):
     """
-    Updates a batch of events with their facial recognition data (personId and personFace).
-    This is intended to be called by a scheduler after processing events.
+    Updates a batch of events with their facial recognition data.
     """
     resp = update_events_with_facial_recognition_data(request)
     if resp:
         return JSONResponse(content=resp, status_code=200)
     else:
-        # Following the pattern of returning an empty JSON object on service failure
         return JSONResponse(content={}, status_code=503)

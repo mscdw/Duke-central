@@ -1,0 +1,547 @@
+import base64
+import math
+from datetime import datetime
+from io import BytesIO
+from urllib.parse import urlencode
+import uuid
+
+import pandas as pd
+import streamlit as st
+from PIL import Image
+from utils.api_logger import logged_request
+from utils.setup import global_page_setup
+
+# --- Page Configuration ---
+st.set_page_config(page_title="Anomaly Reports Viewer", layout="wide")
+API_URL = st.secrets.get("API_BASE", "http://localhost:8001")
+
+
+# --- HELPER FUNCTION TO GET FACE IMAGE ---
+@st.cache_data(show_spinner=False)
+def get_face_image(person_id):
+    """
+    Fetches, crops, and caches the representative face image for a given personId.
+    Returns a PIL Image object or None.
+    """
+    if not person_id or person_id == "N/A":
+        return None
+    try:
+        # Use personIdOnly=True for an efficient lookup of one representative image.
+        params = {"personId": person_id, "personIdOnly": True}
+        resp = logged_request("get", f"{API_URL}/get-appearances", params=params)
+        resp.raise_for_status()
+        events = resp.json()
+
+        if not events:
+            return None
+
+        event = events[0]
+        img_b64 = event.get("imageBaseString")
+        if not img_b64:
+            return None
+
+        img_bytes = base64.b64decode(img_b64)
+        image = Image.open(BytesIO(img_bytes))
+
+        # Crop to the face if a bounding box is available
+        if event.get("personFace") and event["personFace"].get("BoundingBox"):
+            bbox = event["personFace"]["BoundingBox"]
+            width, height = image.size
+            left = int(bbox["Left"] * width)
+            top = int(bbox["Top"] * height)
+            right = int((bbox["Left"] + bbox["Width"]) * width)
+            bottom = int((bbox["Top"] + bbox["Height"]) * height)
+            face_img = image.crop((left, top, right, bottom))
+            return face_img
+        else:
+            # Fallback to the full image if no bounding box is provided
+            return image
+    except Exception as e:
+        print(f"Error fetching face image for {person_id}: {e}")
+        return None
+
+
+# --- INITIALIZE SESSION STATE & READ QUERY PARAMS ---
+if "filters_initialized" not in st.session_state:
+    params = st.query_params
+    st.session_state.trigger_auto_fetch = False
+    st.session_state.run_id_filter = params.get("run_id")
+    st.session_state.model_choice_filter = params.get("model_choice", "All")
+    st.session_state.priority_filter = params.get("priority", "All")
+    st.session_state.feature_filter = params.get("feature", "All")
+    st.session_state.rule_based_category_filter = params.get(
+        "rule_based_category", "All"
+    )
+    st.session_state.anomaly_person_id = params.get("personId", "")
+    st.session_state.anomaly_start_date = None
+    st.session_state.anomaly_end_date = None
+    st.session_state.model_choice_options = ["All"]
+    st.session_state.feature_options = ["All"]
+    st.session_state.priority_options = ["All"]
+    st.session_state.rule_based_category_options = ["All"]
+
+    if "visualizations_cache" not in st.session_state:
+        st.session_state.visualizations_cache = {}
+
+    if "person_occurrences_cache" not in st.session_state:
+        st.session_state.person_occurrences_cache = {}
+
+    if "expanded_report_id" not in st.session_state:
+        st.session_state.expanded_report_id = None
+
+    date_str = params.get("anomaly_timestamp")
+    if st.session_state.run_id_filter:
+        st.session_state.trigger_auto_fetch = True
+    elif date_str:
+        try:
+            parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            st.session_state.anomaly_start_date = parsed_date
+            st.session_state.anomaly_end_date = parsed_date
+            st.session_state.trigger_auto_fetch = True
+        except ValueError:
+            st.warning(f"Invalid date format in URL. Please use YYYY-MM-DD.")
+
+    st.session_state.filters_initialized = True
+
+
+# --- Dynamic Page Title ---
+if st.session_state.get("run_id_filter"):
+    run_title_parts = [f"Run ID: {st.session_state.run_id_filter}"]
+    if st.session_state.model_choice_filter != "All":
+        run_title_parts.append(f"Model: {st.session_state.model_choice_filter}")
+    st.title(f"🛡️ Viewing Filtered Run | " + " | ".join(run_title_parts))
+else:
+    title_parts = ["🛡️ Anomaly Reports Viewer"]
+    active_filters_list = []
+    if (
+        st.session_state.anomaly_start_date
+        and st.session_state.anomaly_start_date == st.session_state.anomaly_end_date
+    ):
+        active_filters_list.append(
+            f"for {st.session_state.anomaly_start_date.isoformat()}"
+        )
+    if st.session_state.model_choice_filter != "All":
+        active_filters_list.append(f"Model: {st.session_state.model_choice_filter}")
+    
+    if active_filters_list:
+        title_parts.append(" | ".join(active_filters_list))
+    st.title(" ".join(title_parts))
+
+st.markdown("Browse all anomaly detection reports generated by the system.")
+
+
+# --- Sidebar and Filtering ---
+with st.sidebar:
+    st.header("Fetch Options")
+    is_run_view = bool(st.session_state.get("run_id_filter"))
+    if is_run_view:
+        st.info(
+            "Currently viewing a specific run. Clear parameters from "
+            "the URL to enable general search."
+        )
+
+    st.date_input("Start Anomaly Date", key="anomaly_start_date", disabled=is_run_view)
+    st.date_input("End Anomaly Date", key="anomaly_end_date", disabled=is_run_view)
+    st.text_input(
+        "Filter by Person ID (optional)", key="anomaly_person_id", disabled=is_run_view
+    )
+    fetch_btn = st.button("Fetch Reports", type="primary", disabled=is_run_view)
+
+should_fetch = fetch_btn or st.session_state.get("trigger_auto_fetch", False)
+
+
+# --- Data Fetching Logic ---
+if should_fetch:
+    st.session_state.trigger_auto_fetch = False
+
+    fetch_params = {}
+    if st.session_state.get("run_id_filter"):
+        fetch_params["run_id"] = st.session_state.run_id_filter
+        if st.session_state.model_choice_filter != "All":
+            fetch_params["model_choice"] = st.session_state.model_choice_filter
+    else:
+        if st.session_state.anomaly_start_date:
+            fetch_params["start_date"] = st.session_state.anomaly_start_date.isoformat()
+        if st.session_state.anomaly_end_date:
+            fetch_params["end_date"] = st.session_state.anomaly_end_date.isoformat()
+        if st.session_state.anomaly_person_id:
+            fetch_params["personId"] = st.session_state.anomaly_person_id
+
+    endpoint_url = f"{API_URL}/get-anomaly-reports"
+    with st.spinner("Loading anomaly reports..."):
+        try:
+            resp = logged_request("get", endpoint_url, params=fetch_params)
+            resp.raise_for_status()
+            all_reports = resp.json()
+            st.session_state["anomaly_reports"] = all_reports
+            st.session_state.visualizations_cache = {}
+            st.session_state.person_occurrences_cache = {}
+            st.session_state.expanded_report_id = None
+
+            model_choices = sorted(
+                list(
+                    set(
+                        r.get("model_config", {}).get("model_choice")
+                        for r in all_reports
+                        if r.get("model_config", {}).get("model_choice")
+                    )
+                )
+            )
+            st.session_state.model_choice_options = ["All"] + model_choices
+
+            all_features = set()
+            all_rule_categories = set()
+            for r in all_reports:
+                model_driven_insight_list = r.get("explanation", {}).get("model_driven_insight")
+                if model_driven_insight_list and isinstance(model_driven_insight_list, list):
+                    for insight_item in model_driven_insight_list:
+                        if isinstance(insight_item, dict) and insight_item.get(
+                            "feature"
+                        ):
+                            all_features.add(insight_item.get("feature"))
+
+                rule_based_list = r.get("explanation", {}).get("rule_based")
+                if rule_based_list and isinstance(rule_based_list, list):
+                    for rule_item in rule_based_list:
+                        if isinstance(rule_item, dict) and rule_item.get("category"):
+                            all_rule_categories.add(rule_item.get("category"))
+
+            st.session_state.feature_options = ["All"] + sorted(list(all_features))
+            st.session_state.rule_based_category_options = ["All"] + sorted(
+                list(all_rule_categories)
+            )
+            
+            priority_order = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+            priorities = sorted(
+                list(
+                    set(
+                        r.get("ai_triage", {}).get("priority")
+                        for r in all_reports
+                        if r.get("ai_triage", {}).get("priority")
+                    )
+                ),
+                key=lambda x: priority_order.index(x) if x in priority_order else 99,
+            )
+            st.session_state.priority_options = ["All"] + priorities
+
+        except Exception as e:
+            st.error(f"An error occurred fetching data: {e}")
+            st.session_state["anomaly_reports"] = []
+
+all_fetched_reports = st.session_state.get("anomaly_reports", [])
+
+with st.sidebar:
+    st.divider()
+    st.header("Filter Displayed Results")
+    st.selectbox(
+        "AI Triage Priority",
+        options=st.session_state.priority_options,
+        key="priority_filter",
+    )
+    st.selectbox(
+        "Model Type",
+        options=st.session_state.model_choice_options,
+        key="model_choice_filter",
+    )
+    st.selectbox(
+        "Insight Feature",
+        options=st.session_state.feature_options,
+        key="feature_filter",
+    )
+    st.selectbox(
+        "Rule-Based Category",
+        options=st.session_state.rule_based_category_options,
+        key="rule_based_category_filter",
+    )
+
+
+filtered_reports = all_fetched_reports
+if st.session_state.priority_filter != "All":
+    filtered_reports = [
+        r
+        for r in filtered_reports
+        if r.get("ai_triage", {}).get("priority") == st.session_state.priority_filter
+    ]
+if st.session_state.model_choice_filter != "All":
+    filtered_reports = [
+        r
+        for r in filtered_reports
+        if r.get("model_config", {}).get("model_choice")
+        == st.session_state.model_choice_filter
+    ]
+if st.session_state.feature_filter != "All":
+    filtered_reports = [
+        r
+        for r in filtered_reports
+        if st.session_state.feature_filter
+        in [
+            insight.get("feature")
+            for insight in r.get("explanation", {}).get("model_driven_insight", [])
+            if isinstance(insight, dict)
+        ]
+    ]
+if st.session_state.rule_based_category_filter != "All":
+    filtered_reports = [
+        r
+        for r in filtered_reports
+        if any(
+            rule.get("category") == st.session_state.rule_based_category_filter
+            for rule in r.get("explanation", {}).get("rule_based", [])
+            if isinstance(rule, dict)
+        )
+    ]
+
+
+# --- Main Page Display ---
+if not all_fetched_reports and not should_fetch:
+    st.info("Use the sidebar options and click 'Fetch Reports' to load data.")
+elif not filtered_reports:
+    st.info(
+        "No reports match the current display filters. Try adjusting "
+        "the filter options in the sidebar."
+    )
+else:
+    with st.sidebar:
+        st.divider()
+        st.header("Display Options")
+        total_records = len(filtered_reports)
+
+        if total_records <= 1:
+            # No slider if only 0 or 1 record, fixed values
+            records_per_page = 1 if total_records == 1 else 0
+            page_number = 1
+            st.info(f"Displaying {total_records} report{'s' if total_records != 1 else ''}.")
+        else:
+            # Multiple records — show slider and page selector
+            records_per_page = st.slider(
+                "Reports per page",
+                min_value=1,
+                max_value=min(50, total_records),
+                value=min(10, total_records),
+                step=1,
+            )
+            total_pages = math.ceil(total_records / records_per_page)
+            page_number = st.number_input(
+                "Page number",
+                min_value=1,
+                max_value=total_pages,
+                value=1,
+            )
+
+
+    start_idx = (page_number - 1) * records_per_page
+    end_idx = start_idx + records_per_page
+    reports_on_page = filtered_reports[start_idx:end_idx]
+
+    st.info(
+        f"Displaying {len(reports_on_page)} of {len(filtered_reports)} matching reports. "
+        f"(Total fetched: {len(all_fetched_reports)})"
+    )
+    st.divider()
+
+    for idx, report in enumerate(reports_on_page):
+        person_id = report.get("personId", "N/A")
+        anomaly_timestamp = report.get("anomaly_timestamp", "N/A")
+        model_config = report.get("model_config", {})
+        ai_triage_obj = report.get("ai_triage", {})
+        explanation_obj = report.get("explanation", {})
+        rule_based_items = explanation_obj.get("rule_based", [])
+        model_driven_insight_list = explanation_obj.get("model_driven_insight", [])
+        run_id = report.get("run_id")
+        report_id = report.get('id') or report.get('_id') or f"fallback_{uuid.uuid4()}"
+
+        # --- ADD THIS DEBUGGING BLOCK ---
+        if not report_id:
+            st.warning(f"DEBUG: This report (index {idx}) is missing its 'id' key. Full report JSON shown below:")
+            st.json(report)
+        # --- END OF DEBUGGING BLOCK ---
+
+        is_expanded = (report_id is not None) and (report_id == st.session_state.get("expanded_report_id"))
+
+        run_url = None
+        if run_id:
+            run_params = {
+                "run_id": run_id,
+                "model_choice": model_config.get("model_choice"),
+            }
+            filtered_run_params = {k: v for k, v in run_params.items() if v is not None}
+            run_url = f"/AnomalyReports?{urlencode(filtered_run_params)}"
+
+        anomaly_cause_title = "Unspecified Anomaly"
+        use_rule_based_title = rule_based_items and not any(
+            item.get("category") == "UNSPECIFIED_MODEL_ANOMALY"
+            for item in rule_based_items if isinstance(item, dict)
+        )
+        if use_rule_based_title:
+            rule_categories = [
+                item.get("category", "Unknown").replace("_", " ").title()
+                for item in rule_based_items if isinstance(item, dict)
+            ]
+            anomaly_cause_title = f"Rule-Based: {', '.join(rule_categories)}"
+        elif model_driven_insight_list and isinstance(model_driven_insight_list, list) and model_driven_insight_list:
+            top_insight = model_driven_insight_list[0]
+            feature_name = top_insight.get("feature") if isinstance(top_insight, dict) else "N/A"
+            if feature_name and feature_name not in ["N/A", "Unspecified Model Anomaly"]:
+                anomaly_cause_title = f"Model Anomaly on {feature_name}"
+            else:
+                anomaly_cause_title = "Model-Based Anomaly"
+
+        priority_val = ai_triage_obj.get("priority", "N/A")
+        model_choice_val = model_config.get("model_choice", "N/A").upper()
+
+        expander_title = (
+            f"{anomaly_cause_title} | "
+            f"Timestamp: {anomaly_timestamp} | "
+            f"Person: {str(person_id)[:8]}... | "
+            f"Model: {model_choice_val} | "
+            f"Priority: {priority_val}"
+        )
+        with st.expander(expander_title, expanded=is_expanded):
+            st.subheader("Report Details")
+
+            # --- NEW: Display face image next to details ---
+            details_col1, details_col2 = st.columns([1, 4])
+            with details_col1:
+                face_image = get_face_image(person_id)
+                if face_image:
+                    st.image(face_image, use_container_width=True, caption=f"Person: {person_id}")
+                else:
+                    st.markdown("<div style='display: flex; align-items: center; justify-content: center; height: 128px; border: 1px solid #444; border-radius: 4px; font-size: 4em;'>👤</div>", unsafe_allow_html=True)
+                    st.caption("No Image")
+
+            with details_col2:
+                st.markdown(f"**Person ID:** `{person_id}`")
+                st.markdown(f"**Anomaly Timestamp:** {anomaly_timestamp}")
+                st.markdown(f"**Model Type:** {model_config.get('model_choice', 'N/A')}")
+                if run_url:
+                    st.markdown(f"**[View all reports in this run]({run_url})**")
+            st.divider()
+
+            st.subheader("🤖 AI Triage")
+            if ai_triage_obj and ai_triage_obj.get("priority"):
+                priority = ai_triage_obj.get("priority", "N/A").upper()
+                insight = ai_triage_obj.get("insight", "No triage insight provided.")
+                priority_text = f"**Priority: {priority}**"
+
+                if priority in ("CRITICAL", "HIGH"):
+                    st.error(priority_text, icon="🔥")
+                elif priority == "MEDIUM":
+                    st.warning(priority_text, icon="⚠️")
+                else:
+                    st.info(priority_text, icon="ℹ️")
+                st.markdown(f"> {insight}")
+            else:
+                st.info("No AI Triage information available for this report.")
+            st.divider()
+
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.subheader("Anomaly Breakdown")
+                st.metric(
+                    "Anomaly Score", value=report.get("anomaly_details", {}).get("score", 0)
+                )
+                st.write(
+                    f"Raw Error: {report.get('anomaly_details', {}).get('raw_error', 0):.4f}"
+                )
+                st.write(
+                    f"Threshold: {report.get('anomaly_details', {}).get('threshold', 0):.4f}"
+                )
+
+            with col2:
+                st.subheader("Explanation")
+                if not rule_based_items and not model_driven_insight_list:
+                    st.info("No explanation provided for this report.")
+                else:
+                    if rule_based_items:
+                        st.markdown("**Rule-Based Flags:**")
+                        for item in rule_based_items:
+                            if isinstance(item, dict) and 'category' in item and 'description' in item:
+                                st.markdown(f"- **{item['category'].replace('_', ' ').title()}:** {item['description']}")
+                            else:
+                                st.markdown(f"- Invalid rule item: {item}")
+                        if model_driven_insight_list:
+                            st.write("---")
+
+                    if model_driven_insight_list:
+                        st.markdown("**Model-Based Insights (Feature Contributions):**")
+                        insight_df = pd.DataFrame(model_driven_insight_list)
+                        def format_value(x):
+                            return f"{x:,.2f}" if isinstance(x, (int, float)) else x
+                        
+                        if all(col in insight_df.columns for col in ['predicted', 'actual', 'contribution_pct']):
+                            insight_df["predicted"] = insight_df["predicted"].apply(format_value)
+                            insight_df["actual"] = insight_df["actual"].apply(format_value)
+                            insight_df["contribution_pct"] = insight_df["contribution_pct"].map('{:,.2f}%'.format)
+                            display_df = insight_df[['feature', 'actual', 'predicted', 'contribution_pct']].rename(
+                                columns={
+                                    'feature': 'Feature',
+                                    'actual': 'Actual Value',
+                                    'predicted': 'Predicted Value',
+                                    'contribution_pct': 'Contribution'
+                                }
+                            )
+                            st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.dataframe(insight_df, use_container_width=True, hide_index=True)
+
+
+            st.divider()
+
+            st.subheader(f"Historical Appearances for Person `{person_id}`")
+
+            person_occurrences_cache = st.session_state.get("person_occurrences_cache", {})
+
+            if person_id in person_occurrences_cache:
+                events = person_occurrences_cache[person_id]
+
+                if not events:
+                    st.info("No historical appearances found for this person.")
+                else:
+                    sorted_events = sorted(events, key=lambda x: x.get("eventStartTime", ""), reverse=True)
+                    st.metric("Total Occurrences Found", len(sorted_events))
+
+                    with st.container(height=400):
+                        for event in sorted_events:
+                            col1, col2 = st.columns([1, 2], gap="medium")
+
+                            with col1:
+                                img_b64 = event.get("imageBaseString")
+                                if img_b64:
+                                    try:
+                                        img_bytes = base64.b64decode(img_b64)
+                                        image = Image.open(BytesIO(img_bytes))
+                                        st.image(image, use_container_width=True)
+                                    except Exception as e:
+                                        st.error(f"Could not display image: {e}")
+                                else:
+                                    st.info("No image available.")
+
+                            with col2:
+                                event_time = event.get("eventStartTime", "Unknown Time")
+                                site = event.get("siteName", "Unknown Site")
+                                camera_id = event.get("cameraId", "Unknown Camera")
+                                confidence = event.get("personFace", {}).get("Confidence", 0)
+
+                                st.markdown(f"**Time:** `{event_time.replace('T', ' ').split('.')[0] if event_time else 'Unknown'}Z`")
+                                st.markdown(f"**Site:** `{site}`")
+                                st.markdown(f"**Camera:** `{camera_id}`")
+                                st.markdown(f"**Confidence:** `{confidence:.1f}%`")
+
+                            st.divider()
+
+            else:
+                if st.button("Load Historical Appearances", key=f"load_app_{report_id}_{idx}"):
+                    st.session_state.expanded_report_id = report_id
+                    with st.spinner(f"Loading appearances for person {person_id}..."):
+                        try:
+                            params = {"personId": person_id}
+                            resp = logged_request("get", f"{API_URL}/get-appearances", params=params)
+                            resp.raise_for_status()
+                            st.session_state.person_occurrences_cache[person_id] = resp.json()
+                        except Exception as e:
+                            st.error(f"Could not load appearances: {e}")
+                            st.session_state.person_occurrences_cache[person_id] = []
+                    st.rerun()
+
+
+global_page_setup()
