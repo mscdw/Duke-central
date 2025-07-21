@@ -1,8 +1,12 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, Field
 from typing import List, Dict, Any, Optional, Literal
+
+# Import from 'appearance_models' which is in a different file, so this is OKAY.
 from app.models.appearance_models import FaceInfo
 
-# --- NO CHANGES TO THESE MODELS ---
+
+# --- UNCHANGED MODELS ---
+# These models are for other API endpoints and do not need to change.
 
 class EventRequest(BaseModel):
     """
@@ -33,9 +37,13 @@ class EventMediaUpdateRequest(BaseModel):
     class Config:
         schema_extra = { "example": {"updates": [{"eventId": "some-event-id-1", "imageBaseString": "..."}]} }
 
+
+# --- MODELS WITH CHANGES FOR MULTI-FACE PROCESSING ---
+
 class EventResponse(BaseModel):
     """
     Defines the data structure for a single event returned by the API.
+    Now includes facial recognition results.
     """
     eventId: str
     title: str
@@ -44,87 +52,97 @@ class EventResponse(BaseModel):
     allDay: bool
     is_all_day: bool
     imageBaseString: Optional[str] = None
-    class Config:
-        schema_extra = { "example": {"eventId": "...", "title": "...", "start": "...", "end": "...", "allDay": False, "is_all_day": False, "imageBaseString": "..."} }
+    processed_at: Optional[str] = None
+    
+    # --- FIX 1: Use a string "forward reference" to avoid circular import ---
+    detected_faces: Optional[List['FaceProcessingResult']] = None
+    # --- END FIX 1 ---
 
 
-# --- MODIFICATIONS START HERE ---
-
-class FaceProcessingInfo(BaseModel):
+class FaceProcessingResult(BaseModel):
     """
-    Detailed information about the outcome of the facial recognition processing attempt.
+    Holds the complete processing result for a single detected face within an image.
+    This structure will be part of a list within the main event update.
     """
-    processed: bool
-    processed_at: str  # ISO 8601 timestamp string
-    match_result: Literal["matched", "indexed", "no_face", "error"]
-    new_face_indexed: bool
-    error_message: Optional[str] = None
-
+    status: Literal["matched", "indexed", "low_quality_face", "error"] = Field(
+        ...,
+        description="The final processing status for this specific face."
+    )
+    
+    face_info: Optional[FaceInfo] = Field(
+        default=None,
+        description="Biometric and reference info from search/index operations. Null if status is not 'matched' or 'indexed'."
+    )
+    
+    rekognition_details: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="The raw, detailed JSON object for this face from the AWS Rekognition DetectFaces API."
+    )
+    
+    error_message: Optional[str] = Field(
+        default=None,
+        description="An error message if the status is 'error'."
+    )
+    
 
 class EventFacialRecognitionUpdate(BaseModel):
     """
-    Defines the structure for a single event facial recognition update.
-    This now includes detailed processing status.
+    Defines the structure for updating a single event with the results
+    of processing ALL faces found in its associated image.
     """
-    eventId: str
-    # personId and personFace are now optional, as they only exist for "matched" or "indexed" statuses.
-    personId: Optional[str] = None
-    personFace: Optional[FaceInfo] = None
-    # This new field contains the detailed processing outcome.
-    face_processing: FaceProcessingInfo
+    eventId: str = Field(..., description="The unique ID of the event being updated.")
+    
+    processed_at: str = Field(
+        ..., 
+        description="The ISO 8601 timestamp when the facial recognition process was completed."
+    )
+    
+    # This is okay because FaceProcessingResult is defined above it in the file.
+    detected_faces: List[FaceProcessingResult] = Field(
+        ...,
+        description="A list of processing results, one for each face found in the event's image."
+    )
 
 
 class EventFacialRecognitionUpdateRequest(BaseModel):
     """
-    Defines the request body for updating events with facial recognition data.
-    The example is updated to reflect the new, more detailed payload.
+    Defines the request body for the `/events/with-recognition` endpoint.
+    It expects a list of event updates.
     """
     updates: List[EventFacialRecognitionUpdate]
 
     class Config:
+        # A new, comprehensive example showing the multi-face structure.
         schema_extra = {
             "example": {
                 "updates": [
                     {
-                        "eventId": "event-id-matched",
-                        "personId": "rekognition-face-id-123",
-                        "personFace": {
-                            "FaceId": "rekognition-face-id-123",
-                            "BoundingBox": {"Width": 0.1, "Height": 0.2, "Left": 0.3, "Top": 0.4},
-                            "ImageId": "source-image-id",
-                            "Confidence": 99.9
-                        },
-                        "face_processing": {
-                            "processed": True,
-                            "processed_at": "2023-10-27T10:00:00Z",
-                            "match_result": "matched",
-                            "new_face_indexed": False
-                        }
+                        "eventId": "event-with-two-faces",
+                        "processed_at": "2023-10-28T12:00:00Z",
+                        "detected_faces": [
+                            {
+                                "status": "matched",
+                                "face_info": {
+                                    "FaceId": "face-id-123",
+                                    "BoundingBox": {"Width": 0.1, "Height": 0.2, "Left": 0.1, "Top": 0.1},
+                                    "ImageId": "image-id-abc",
+                                    "Confidence": 99.8
+                                },
+                                "rekognition_details": {
+                                    "AgeRange": {"Low": 25, "High": 35},
+                                    "Emotions": [{"Type": "HAPPY", "Confidence": 98.7}]
+                                },
+                                "error_message": None
+                            },
+                        ]
                     },
-                    {
-                        "eventId": "event-id-no-face",
-                        "personId": None,
-                        "personFace": None,
-                        "face_processing": {
-                            "processed": True,
-                            "processed_at": "2023-10-27T10:01:00Z",
-                            "match_result": "no_face",
-                            "new_face_indexed": False
-                        }
-                    },
-                     {
-                        "eventId": "event-id-error",
-                        "personId": None,
-                        "personFace": None,
-                        "face_processing": {
-                            "processed": True,
-                            "processed_at": "2023-10-27T10:02:00Z",
-                            "match_result": "error",
-                            "new_face_indexed": False,
-                            "error_message": "Rekognition API call failed."
-                        }
-                    }
                 ]
             }
         }
-# --- MODIFICATIONS END HERE ---
+
+# --- FIX 2: Rebuild the model that used the forward reference ---
+# This line must be at the end of the file, after all models are defined.
+# It tells Pydantic to resolve the string 'FaceProcessingResult' in EventResponse
+# into the actual FaceProcessingResult class.
+EventResponse.model_rebuild()
+# --- END FIX 2 ---
