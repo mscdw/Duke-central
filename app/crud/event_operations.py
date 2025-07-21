@@ -243,6 +243,7 @@ def get_events(
                 "title": "$type",
                 "start": "$timestamp",
                 "end": "$timestamp",
+                "cameraId": "$cameraId",
                 "imageBaseString": "$imageBaseString",
                 "timestamp": "$timestamp",
                 "processed_at": "$processed_at",

@@ -42,13 +42,13 @@ def draw_bounding_boxes(image: Image.Image, faces: list) -> Image.Image:
         status = face.get("status", "unknown")
         
         if status == "matched":
-            color = "#2E8B57"  # SeaGreen
+            color = "#2E8B57" # SeaGreen
             label = f"MATCHED: {face.get('face_info', {}).get('FaceId', '')[:8]}..."
         elif status == "indexed":
-            color = "#1E90FF"  # DodgerBlue
+            color = "#1E90FF" # DodgerBlue
             label = f"INDEXED: {face.get('face_info', {}).get('FaceId', '')[:8]}..."
         else:
-            color = "#DC143C"  # Crimson
+            color = "#DC143C" # Crimson
             label = f"NOT MATCHED: {status.upper()}"
 
         draw.rectangle([left, top, right, bottom], outline=color, width=5)
@@ -81,6 +81,11 @@ selected_types = st.multiselect(
     default=type_options
 )
 
+# --- START OF CHANGE ---
+# 1. Added a text input for the Camera ID filter.
+camera_id_filter = st.text_input("Filter by Camera ID:")
+# --- END OF CHANGE ---
+
 st.subheader("3. Filter by Face Recognition Results (Optional)")
 
 status_options = ["matched", "indexed", "skipped_low_confidence", "error"]
@@ -103,17 +108,23 @@ if st.button("Get Events", type="primary"):
     }
     
     # --- START OF CHANGE ---
-    # 1. Add the faceId to the API request if the user provided one.
-    if face_id_filter:
-        params['faceId'] = face_id_filter
+    # 2. Add the cameraId to the API request if the user provided one.
+    if camera_id_filter:
+        params['cameraId'] = camera_id_filter
     # --- END OF CHANGE ---
     
+    if face_id_filter:
+        params['faceId'] = face_id_filter
+    
     try:
+        # Use a placeholder for the actual API call
+        # In a real scenario, this would be:
+        # response = requests.get(f"{API_URL}/get-events", params=params)
         response = requests.get(f"{API_URL}/get-events", params=params)
         response.raise_for_status()
         events = response.json()
 
-        # The API has already filtered by type and faceId.
+        # The API has already filtered by type, faceId, and cameraId.
         # Now, we only need to apply the remaining UI-only filters (status and checkboxes).
         if selected_statuses or show_no_faces or show_unprocessed:
             filtered_by_face_rec = []
@@ -134,10 +145,6 @@ if st.button("Get Events", type="primary"):
                     if selected_statuses and face.get('status') in selected_statuses:
                         is_match = True
                         break
-                    
-                    # --- START OF CHANGE ---
-                    # 2. The redundant faceId check that was here has been REMOVED.
-                    # --- END OF CHANGE ---
                 
                 if is_match:
                     filtered_by_face_rec.append(event)
@@ -155,7 +162,16 @@ if st.button("Get Events", type="primary"):
                 processed_at = event_data.get('processed_at')
                 detected_faces = event_data.get('detected_faces', [])
                 
-                expander_title = f"Event {i+1} - ID: {event_data.get('eventId', 'N/A')} - Type: {event_data.get('title')}"
+                # --- START OF CHANGE ---
+                # 3. Add cameraId and date to the expander title.
+                camera_id = event_data.get('cameraId', 'N/A')
+                event_ts = event_data.get('timestamp', 'Unknown Date')
+                # Extract just the date part (YYYY-MM-DD) from the timestamp
+                event_date = event_ts.split('T')[0] if 'T' in event_ts else event_ts
+
+                expander_title = f"Camera: {camera_id} on {event_ts} - Type: {event_data.get('title')}"
+                # --- END OF CHANGE ---
+                
                 if processed_at:
                     if detected_faces:
                         expander_title += f" ({len(detected_faces)} face(s) found)"

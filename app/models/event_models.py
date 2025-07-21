@@ -64,7 +64,14 @@ class FaceProcessingResult(BaseModel):
     Holds the complete processing result for a single detected face within an image.
     This structure will be part of a list within the main event update.
     """
-    status: Literal["matched", "indexed", "skipped_low_confidence", "error"] = Field(
+    # --- CHANGE 1: ADD THE NEW STATUS ---
+    status: Literal[
+        "matched", 
+        "indexed", 
+        "skipped_low_confidence", 
+        "skipped_low_quality",  # <-- The new allowed status
+        "error"
+    ] = Field(
         ...,
         description="The final processing status for this specific face."
     )
@@ -84,6 +91,11 @@ class FaceProcessingResult(BaseModel):
         description="An error message if the status is 'error'."
     )
     
+    # --- CHANGE 2: ADD THE NEW FIELD TO CAPTURE THE AWS ERROR ---
+    failure_reason: Optional[str] = Field(
+        default=None,
+        description="The specific reason from AWS Rekognition if processing failed (e.g., for 'skipped_low_quality')."
+    )
 
 class EventFacialRecognitionUpdate(BaseModel):
     """
