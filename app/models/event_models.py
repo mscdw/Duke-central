@@ -64,7 +64,7 @@ class FaceProcessingResult(BaseModel):
     Holds the complete processing result for a single detected face within an image.
     This structure will be part of a list within the main event update.
     """
-    status: Literal["matched", "indexed", "low_quality_face", "error"] = Field(
+    status: Literal["matched", "indexed", "skipped_low_confidence", "error"] = Field(
         ...,
         description="The final processing status for this specific face."
     )

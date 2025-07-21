@@ -36,13 +36,24 @@ def store_events_data(request: EventRequest) -> Dict[str, Any] | None:
         return None
 
 
-def get_events_data(start_date: datetime | None, end_date: datetime | None) -> List[Dict[str, Any]] | None:
+def get_events_data(
+    start_date: Optional[datetime], 
+    end_date: Optional[datetime],
+    types: Optional[List[str]] = None,
+    face_id: Optional[str] = None  # <-- Add face_id parameter
+) -> List[Dict[str, Any]] | None:
     """
-    Retrieves events within a specified date range from the CRUD layer.
+    Retrieves events, optionally filtered by type and Face ID, from the CRUD layer.
     """
     try:
-        events = get_events(start_date=start_date, end_date=end_date)
-        logger.info(f"Retrieved {len(events)} events from {start_date} to {end_date}.")
+        # Pass the new parameter down to the CRUD function
+        events = get_events(
+            start_date=start_date, 
+            end_date=end_date, 
+            types=types, 
+            face_id=face_id
+        )
+        logger.info(f"Retrieved {len(events)} events for query.")
         return events
     except Exception as e:
         logger.error(f"Could not retrieve events. Details: {e}", exc_info=True)
@@ -107,16 +118,17 @@ def update_events_with_facial_recognition_data(request: EventFacialRecognitionUp
         return None
 
 # --- 2. ADD THE NEW SERVICE FUNCTION ---
-def get_latest_event_timestamp_data() -> Dict[str, Any]:
+def get_latest_event_timestamp_data(event_type: Optional[str] = None) -> Dict[str, Any]:
     """
     Service layer function to retrieve the latest event timestamp from the CRUD layer.
+    Can be filtered by a specific event type.
     """
     try:
-        timestamp = get_latest_event_timestamp()
+        # Pass the event_type down to the CRUD function
+        timestamp = get_latest_event_timestamp(event_type=event_type)
         # The response is wrapped in a dictionary to be JSON-friendly for the API.
         return {"latest_timestamp": timestamp}
     except Exception as e:
         logger.error(f"Could not retrieve latest event timestamp. Details: {e}", exc_info=True)
         # Return a null timestamp in case of an error, so the scheduler can handle it.
         return {"latest_timestamp": None}
-# --- END OF NEW FUNCTION ---

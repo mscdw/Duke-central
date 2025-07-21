@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, Query
 from fastapi.responses import Response, JSONResponse
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional 
 from app.core.logging import get_logger
 from app.models.event_models import EventRequest, EventMediaUpdateRequest, EventFacialRecognitionUpdateRequest
 # --- 1. IMPORT THE NEW SERVICE FUNCTION ---
@@ -66,31 +66,45 @@ def update_events_media(request: EventMediaUpdateRequest):
 def get_events(
     start_date: str = Query(None, description="Start date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"),
     end_date: str = Query(None, description="End date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"),
+    types: Optional[List[str]] = Query(None, alias="type", description="Filter by one or more event types."),
+    # --- START OF CHANGE ---
+    face_id: Optional[str] = Query(None, alias="faceId", description="Filter events by a specific Rekognition Face ID.")
+    # --- END OF CHANGE ---
 ):
     """
-    Gets events within a specified date range.
+    Gets events within a date range, optionally filtered by type and a specific Face ID.
     """
-    logger.info(f"Request received for events. Start: {start_date}, End: {end_date}")
+    logger.info(f"Request received for events. Start: {start_date}, End: {end_date}, Types: {types}, FaceID: {face_id}")
+    
     start_dt = datetime.fromisoformat(start_date) if start_date else None
     end_dt = datetime.fromisoformat(end_date) if end_date else None
 
-    result = get_events_data(start_date=start_dt, end_date=end_dt)
+    # Pass the new 'face_id' parameter down to the service layer function
+    result = get_events_data(
+        start_date=start_dt, 
+        end_date=end_dt, 
+        types=types, 
+        face_id=face_id
+    )
+    
     return JSONResponse(content=result if result is not None else [], status_code=200)
-
 
 # --- 2. ADD THE NEW API ROUTE ---
 @router.get("/events/latest-timestamp", response_class=JSONResponse, tags=["Events", "Schedulers"])
-def get_latest_event_timestamp_route():
+def get_latest_event_timestamp_route(
+    event_type: Optional[str] = Query(None, alias="type", description="Optional event type to filter by.")
+):
     """
     Retrieves the timestamp of the most recently stored event.
+    Can be filtered by a specific event type using the 'type' query parameter.
+    
     This is used by schedulers to determine the starting point for fetching new events,
     preventing the re-processing of old data.
     """
-    logger.info("Request received for the latest event timestamp.")
-    result = get_latest_event_timestamp_data()
+    logger.info(f"Request received for the latest event timestamp. Type filter: {event_type}")
+    # Pass the event_type to the service layer.
+    result = get_latest_event_timestamp_data(event_type=event_type)
     return JSONResponse(content=result, status_code=200)
-# --- END OF NEW ROUTE ---
-
 
 @router.get("/events/for-recognition", response_model=Dict[str, Any], tags=["Facial Recognition"])
 def get_events_for_facial_recognition_route(limit: int = Query(100, ge=1, le=1000)):

@@ -17,24 +17,14 @@ API_URL = st.secrets.get("API_BASE", "http://localhost:8001")
 
 # --- Helper Function to Draw Bounding Boxes (NO CHANGES NEEDED HERE) ---
 def draw_bounding_boxes(image: Image.Image, faces: list) -> Image.Image:
-    """
-    Draws highly visible bounding boxes and labels for each detected face on the image.
-    """
-    # Create a copy to draw on
     img_with_boxes = image.convert("RGB")
     draw = ImageDraw.Draw(img_with_boxes)
     img_width, img_height = img_with_boxes.size
 
-    # --- 1. DYNAMIC FONT SIZE ---
-    # Calculate a font size that is proportional to the image height.
-    # The 'max(15, ...)' ensures the font is at least 15pt.
     font_size = max(15, int(img_height / 40))
     try:
-        # Try to load a common font. You may need to change 'arial.ttf'
-        # to a font available on your system (e.g., 'sans-serif.ttf' on Linux).
         font = ImageFont.truetype("arial.ttf", size=font_size)
     except IOError:
-        # Fallback to a default font if the specified one isn't found.
         font = ImageFont.load_default()
         print("Arial font not found. Falling back to default font.")
 
@@ -52,32 +42,23 @@ def draw_bounding_boxes(image: Image.Image, faces: list) -> Image.Image:
         status = face.get("status", "unknown")
         
         if status == "matched":
-            color = "#2E8B57" # SeaGreen
+            color = "#2E8B57"  # SeaGreen
             label = f"MATCHED: {face.get('face_info', {}).get('FaceId', '')[:8]}..."
         elif status == "indexed":
-            color = "#1E90FF" # DodgerBlue
+            color = "#1E90FF"  # DodgerBlue
             label = f"INDEXED: {face.get('face_info', {}).get('FaceId', '')[:8]}..."
         else:
-            color = "#DC143C" # Crimson
+            color = "#DC143C"  # Crimson
             label = f"NOT MATCHED: {status.upper()}"
 
-        # --- 2. THICKER BOUNDING BOX ---
-        # Increased width for better visibility.
         draw.rectangle([left, top, right, bottom], outline=color, width=5)
 
-        # --- 3. HIGH-CONTRAST TEXT BACKGROUND ---
-        # Get the size of the text to be drawn
         text_bbox = draw.textbbox((left, top), label, font=font)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
-
-        # Draw a filled rectangle behind the text for readability.
-        # Position it just above the main bounding box.
+        
         text_bg_rect = [left, top - text_height - 10, left + text_width + 10, top]
         draw.rectangle(text_bg_rect, fill=color)
-
-        # Draw the text on top of the background rectangle.
-        # Use a contrasting color like white for the text itself.
         draw.text((left + 5, top - text_height - 5), label, font=font, fill="white")
 
     return img_with_boxes
@@ -91,10 +72,18 @@ with col1:
 with col2:
     end_date = st.date_input("End date", date.today())
 
-st.subheader("2. Apply Filters (Optional)")
+st.subheader("2. Apply Filters")
 
-# --- NEW: Filter UI Elements ---
-status_options = ["matched", "indexed", "low_quality_face", "error"]
+type_options = ["DEVICE_CLASSIFIED_OBJECT_MOTION_START", "CUSTOM_APPEARANCE"]
+selected_types = st.multiselect(
+    "Filter by Event Type:",
+    options=type_options,
+    default=type_options
+)
+
+st.subheader("3. Filter by Face Recognition Results (Optional)")
+
+status_options = ["matched", "indexed", "skipped_low_confidence", "error"]
 col1, col2 = st.columns(2)
 with col1:
     selected_statuses = st.multiselect("Filter by Face Status:", options=status_options)
@@ -106,59 +95,67 @@ with col2:
 
 # --- Main Logic ---
 if st.button("Get Events", type="primary"):
+    # Build the params dictionary to send to the API
     params = {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat() + "T23:59:59",
+        "type": selected_types 
     }
+    
+    # --- START OF CHANGE ---
+    # 1. Add the faceId to the API request if the user provided one.
+    if face_id_filter:
+        params['faceId'] = face_id_filter
+    # --- END OF CHANGE ---
     
     try:
         response = requests.get(f"{API_URL}/get-events", params=params)
         response.raise_for_status()
         events = response.json()
 
-        # --- NEW: Filtering Logic ---
-        if selected_statuses or face_id_filter or show_no_faces or show_unprocessed:
-            filtered_events = []
+        # The API has already filtered by type and faceId.
+        # Now, we only need to apply the remaining UI-only filters (status and checkboxes).
+        if selected_statuses or show_no_faces or show_unprocessed:
+            filtered_by_face_rec = []
             for event in events:
                 is_match = False
+                
                 # Handle special checkbox filters first
                 if show_unprocessed and not event.get('processed_at'):
-                    filtered_events.append(event)
+                    filtered_by_face_rec.append(event)
                     continue
                 if show_no_faces and event.get('processed_at') and not event.get('detected_faces'):
-                    filtered_events.append(event)
+                    filtered_by_face_rec.append(event)
                     continue
                 
-                # Check against status and Face ID filters
                 detected_faces = event.get('detected_faces', [])
                 for face in detected_faces:
                     # Check status match
                     if selected_statuses and face.get('status') in selected_statuses:
                         is_match = True
                         break
-                    # Check Face ID match
-                    face_info = face.get('face_info')
-                    if face_id_filter and face_info and face_info.get('FaceId') == face_id_filter:
-                        is_match = True
-                        break
+                    
+                    # --- START OF CHANGE ---
+                    # 2. The redundant faceId check that was here has been REMOVED.
+                    # --- END OF CHANGE ---
                 
                 if is_match:
-                    filtered_events.append(event)
+                    filtered_by_face_rec.append(event)
             
-            # If any primary filters were used, replace the event list with the filtered list
-            if selected_statuses or face_id_filter:
-                events = filtered_events
-
+            # Replace the event list with the filtered list
+            events = filtered_by_face_rec
+        
         if not events:
             st.warning("No events found for the selected date range and filters.")
         else:
             st.success(f"Found {len(events)} events.")
             
+            # The rest of the display logic requires no changes
             for i, event_data in enumerate(events):
                 processed_at = event_data.get('processed_at')
                 detected_faces = event_data.get('detected_faces', [])
                 
-                expander_title = f"Event {i+1} - ID: {event_data.get('eventId', 'N/A')}"
+                expander_title = f"Event {i+1} - ID: {event_data.get('eventId', 'N/A')} - Type: {event_data.get('title')}"
                 if processed_at:
                     if detected_faces:
                         expander_title += f" ({len(detected_faces)} face(s) found)"
@@ -168,10 +165,10 @@ if st.button("Get Events", type="primary"):
                     expander_title += " (Not Processed)"
 
                 with st.expander(expander_title):
-                    # ... (The display logic from here is the same as the last version) ...
                     image_b64 = event_data.pop("imageBaseString", None)
-                    event_data.pop("processed_at", None)
-                    event_data.pop("detected_faces", None)
+                    display_data = event_data.copy()
+                    display_data.pop("processed_at", None)
+                    display_data.pop("detected_faces", None)
                     
                     disp_col1, disp_col2 = st.columns([1, 2])
 
@@ -196,7 +193,7 @@ if st.button("Get Events", type="primary"):
                     
                     with disp_col1:
                         st.subheader("Event Metadata")
-                        st.json(event_data)
+                        st.json(display_data)
                         
                         st.subheader("Facial Recognition Results")
                         if processed_at:
