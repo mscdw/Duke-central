@@ -88,7 +88,6 @@ def get_events_for_enrichment(event_type: str, limit: int) -> List[Dict[str, Any
         "type": event_type,
         "$or": [
             {"imageBaseString": None},
-            {"json": None},
         ],
     }
     events_cursor = collection.find(query).limit(limit)
@@ -191,11 +190,12 @@ def bulk_update_events_with_facial_recognition(updates: List[Dict[str, Any]]) ->
 def get_events(
     start_date: Optional[datetime],
     end_date: Optional[datetime],
+    types: Optional[List[str]] = None,
+    face_id: Optional[str] = None,  # <-- 1. Add face_id parameter
     include_null_image_base_string: bool = False,
-) -> List[Dict[str, Any]]: # Note: This returns a dict list, not EventResponse objects directly
+) -> List[Dict[str, Any]]:
     """
-    Retrieves events from the 'events' collection that fall within a specified date range
-    and are ONLY of type 'DEVICE_CLASSIFIED_OBJECT_MOTION_START'.
+    Retrieves events, optionally filtering by a specific Face ID.
     """
     collection = db["events"]
     pipeline = []
@@ -203,7 +203,11 @@ def get_events(
     pipeline.append({"$addFields": {"event_date": {"$toDate": "$timestamp"}}})
 
     match_filter = {}
-    match_filter["type"] = "DEVICE_CLASSIFIED_OBJECT_MOTION_START"
+
+    if types:
+        match_filter["type"] = {"$in": types}
+    else:
+        match_filter["type"] = {"$in": ["DEVICE_CLASSIFIED_OBJECT_MOTION_START", "CUSTOM_APPEARANCE"]}
 
     date_filter = {}
     if start_date:
@@ -217,25 +221,32 @@ def get_events(
     if not include_null_image_base_string:
         match_filter["imageBaseString"] = {"$ne": None}
 
+    # --- START OF CHANGE ---
+    # 2. Add the faceId to the match filter if it's provided.
+    #    MongoDB's dot notation allows us to query for a value within an array of objects.
+    if face_id:
+        match_filter["detected_faces.face_info.FaceId"] = face_id
+    # --- END OF CHANGE ---
+
     if match_filter:
         pipeline.append({"$match": match_filter})
 
     pipeline.append({"$sort": {"event_date": 1}})
 
+    # The $project stage remains the same
     pipeline.append(
         {
             "$project": {
                 "_id": 0,
                 "eventId": {"$toString": "$_id"},
-                "title": "$type",
+                "type": "$type",
                 "start": "$timestamp",
                 "end": "$timestamp",
-                "allDay": {"$literal": False},
-                "is_all_day": {"$literal": False},
+                "cameraId": "$cameraId",
                 "imageBaseString": "$imageBaseString",
                 "timestamp": "$timestamp",
-                "processed_at": "$processed_at",       # Pass through the processed_at field
-                "detected_faces": "$detected_faces"  # Pass through the detected_faces array
+                "processed_at": "$processed_at",
+                "detected_faces": "$detected_faces"
             }
         }
     )
@@ -244,17 +255,26 @@ def get_events(
     return list(events_cursor)
 
 # --- NEW FUNCTION ADDED FOR "SMARTER" SCHEDULER ---
-def get_latest_event_timestamp() -> Optional[str]:
+def get_latest_event_timestamp(event_type: Optional[str] = None) -> Optional[str]:
     """
     Finds the timestamp of the most recent event stored in the database.
     This is used by schedulers to determine their starting point.
+
+    Args:
+        event_type (Optional[str]): If provided, finds the latest timestamp
+                                     ONLY for events of this specific type.
     """
     collection = db["events"]
+    
+    # Build the filter dynamically. If no type is provided, it's an empty filter.
+    filter_doc = {}
+    if event_type:
+        filter_doc["type"] = event_type
     
     # Efficiently find the single latest document by sorting descending and limiting to 1.
     # We only need the 'timestamp' field.
     latest_event = collection.find_one(
-        filter={}, 
+        filter=filter_doc, # Use the dynamically built filter
         projection={"timestamp": 1}, 
         sort=[("timestamp", -1)]
     )
@@ -263,5 +283,4 @@ def get_latest_event_timestamp() -> Optional[str]:
     if latest_event:
         return latest_event.get("timestamp")
     return None
-# --- END OF NEW FUNCTION ---
 
