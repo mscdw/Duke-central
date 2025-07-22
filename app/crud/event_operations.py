@@ -88,7 +88,6 @@ def get_events_for_enrichment(event_type: str, limit: int) -> List[Dict[str, Any
         "type": event_type,
         "$or": [
             {"imageBaseString": None},
-            {"json": None},
         ],
     }
     events_cursor = collection.find(query).limit(limit)
@@ -240,7 +239,7 @@ def get_events(
             "$project": {
                 "_id": 0,
                 "eventId": {"$toString": "$_id"},
-                "title": "$type",
+                "type": "$type",
                 "start": "$timestamp",
                 "end": "$timestamp",
                 "cameraId": "$cameraId",
