@@ -2,12 +2,16 @@ import boto3
 import io
 from PIL import Image, ImageDraw
 from botocore.exceptions import ClientError
+from typing import Optional
 from app.models.appearance_models import FaceInfo, BoundingBox
 from app.core.logging import get_logger
+from app.core.config import get_settings
 
 logger = get_logger("aws-services")
+settings = get_settings()
 
 DEFAULT_COLLECTION_ID = 'new-face-collection-2'
+
 rekognition = boto3.client("rekognition", region_name="us-east-2")
 
 def create_collection(collection_id: str = DEFAULT_COLLECTION_ID):
@@ -154,3 +158,31 @@ def save_cropped_face(image_bytes: bytes, bbox_normalized: BoundingBox, original
         
     except Exception as e:
         logger.error(f"An error occurred during the save_cropped_face process: {e}", exc_info=True)
+
+# --- S3-related functionality ---
+try:
+    s3_client = boto3.client("s3", region_name=settings.AWS_REGION)
+    S3_BUCKET_NAME = settings.S3_FACE_IMAGE_BUCKET
+except Exception as e:
+    logger.error(f"Failed to initialize S3 client: {e}", exc_info=True)
+    s3_client = None
+    S3_BUCKET_NAME = None
+
+def create_presigned_url(s3_key: str, expiration: int = 3600) -> Optional[str]:
+    """
+    Generate a presigned URL to share an S3 object.
+
+    :param s3_key: string
+    :param expiration: Time in seconds for the presigned URL to remain valid
+    :return: Presigned URL as string. If error, returns None.
+    """
+    if not all([s3_client, S3_BUCKET_NAME]):
+        logger.error("S3 client or bucket not configured. Cannot create presigned URL.")
+        return None
+
+    try:
+        response = s3_client.generate_presigned_url('get_object', Params={'Bucket': S3_BUCKET_NAME, 'Key': s3_key}, ExpiresIn=expiration)
+    except ClientError as e:
+        logger.error(f"Failed to generate presigned URL for key {s3_key}: {e}", exc_info=True)
+        return None
+    return response

@@ -180,7 +180,7 @@ if st.button("Get Events", type="primary"):
                     expander_title += " (Not Processed)"
 
                 with st.expander(expander_title):
-                    image_b64 = event_data.pop("imageBaseString", None)
+                    s3_key = event_data.pop("s3ImageKey", None)
                     display_data = event_data.copy()
                     display_data.pop("processed_at", None)
                     display_data.pop("detected_faces", None)
@@ -189,20 +189,29 @@ if st.button("Get Events", type="primary"):
 
                     with disp_col2:
                         st.subheader("Event Image Analysis")
-                        if image_b64:
+                        if s3_key:
                             try:
-                                if image_b64.startswith("data:image"):
-                                    image_b64 = image_b64.split(",", 1)[1]
-                                img_data = base64.b64decode(image_b64)
+                                # 1. Get the presigned URL from the backend
+                                url_response = requests.get(f"{API_URL}/get-presigned-url", params={"s3Key": s3_key})
+                                url_response.raise_for_status()
+                                presigned_url = url_response.json()
+
+                                # 2. Download the image from the presigned URL
+                                image_response = requests.get(presigned_url)
+                                image_response.raise_for_status()
+                                img_data = image_response.content
+
+                                # 3. Open the image with PIL
                                 img = Image.open(io.BytesIO(img_data))
                                 
+                                # 4. Draw boxes if faces were detected
                                 if detected_faces:
                                     img_with_boxes = draw_bounding_boxes(img, detected_faces)
                                     st.image(img_with_boxes, caption="Image with Face Analysis", use_container_width=True)
                                 else:
                                     st.image(img, caption="Event Image", use_container_width=True)
                             except Exception as e:
-                                st.error(f"Could not display image: {e}")
+                                st.error(f"Could not display image from S3 (key: {s3_key}): {e}")
                         else:
                             st.info("No image available for this event.")
                     

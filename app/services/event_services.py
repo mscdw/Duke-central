@@ -8,6 +8,7 @@ from app.crud.event_operations import (
     bulk_update_events_with_facial_recognition,
     get_latest_event_timestamp  # <-- Add this import
 )
+from app.services import aws_services
 from app.models.event_models import EventRequest, EventMediaUpdateRequest, EventFacialRecognitionUpdateRequest
 from app.core.logging import get_logger
 from typing import Dict, Any, List, Optional
@@ -42,18 +43,20 @@ def get_events_data(
     start_date: Optional[datetime], 
     end_date: Optional[datetime],
     types: Optional[List[str]] = None,
-    face_id: Optional[str] = None  # <-- Add face_id parameter
+    face_id: Optional[str] = None,
+    camera_id: Optional[str] = None
 ) -> List[Dict[str, Any]] | None:
     """
-    Retrieves events, optionally filtered by type and Face ID, from the CRUD layer.
+    Retrieves events, optionally filtered by type, Face ID, and Camera ID, from the CRUD layer.
     """
     try:
-        # Pass the new parameter down to the CRUD function
+        # Pass all filter parameters down to the CRUD function
         events = get_events(
             start_date=start_date, 
             end_date=end_date, 
             types=types, 
-            face_id=face_id
+            face_id=face_id,
+            camera_id=camera_id
         )
         logger.info(f"Retrieved {len(events)} events for query.")
         return events
@@ -134,3 +137,7 @@ def get_latest_event_timestamp_data(event_type: Optional[str] = None) -> Dict[st
         logger.error(f"Could not retrieve latest event timestamp. Details: {e}", exc_info=True)
         # Return a null timestamp in case of an error, so the scheduler can handle it.
         return {"latest_timestamp": None}
+
+def get_presigned_url_for_s3_key(s3_key: str) -> Optional[str]:
+    """Service layer function to generate a presigned URL for a given S3 key."""
+    return aws_services.create_presigned_url(s3_key)

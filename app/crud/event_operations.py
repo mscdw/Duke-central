@@ -5,7 +5,9 @@ from app.core.logging import get_logger
 from app.models.event_models import EventResponse  # EventMediaUpdate is not directly used here
 from bson import ObjectId
 from datetime import datetime
+from app.core.config import get_settings
 
+settings = get_settings()
 logger = get_logger("event-operations")
 
 # # --- NO CHANGES TO THIS FUNCTION ---
@@ -187,11 +189,12 @@ def get_events(
     start_date: Optional[datetime],
     end_date: Optional[datetime],
     types: Optional[List[str]] = None,
-    face_id: Optional[str] = None,  # <-- 1. Add face_id parameter
-    include_null_image_base_string: bool = False,
+    camera_id: Optional[str] = None,
+    face_id: Optional[str] = None,
+    include_events_without_image: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Retrieves events, optionally filtering by a specific Face ID.
+    Retrieves events, optionally filtering by various criteria.
     """
     collection = db["events"]
     pipeline = []
@@ -214,20 +217,22 @@ def get_events(
     if date_filter:
         match_filter["event_date"] = date_filter
 
-    if not include_null_image_base_string:
-        match_filter["imageBaseString"] = {"$ne": None}
+    if camera_id:
+        match_filter["cameraId"] = camera_id
 
-    # --- START OF CHANGE ---
-    # 2. Add the faceId to the match filter if it's provided.
-    #    MongoDB's dot notation allows us to query for a value within an array of objects.
+    if not include_events_without_image:
+        # Filter for events that have a non-empty s3ImageKey
+        match_filter["s3ImageKey"] = {"$exists": True, "$ne": None, "$ne": ""}
+
     if face_id:
+        # MongoDB's dot notation allows us to query for a value within an array of objects.
         match_filter["detected_faces.face_info.FaceId"] = face_id
-    # --- END OF CHANGE ---
 
     if match_filter:
         pipeline.append({"$match": match_filter})
 
-    pipeline.append({"$sort": {"event_date": 1}})
+    # Sort by most recent first
+    pipeline.append({"$sort": {"event_date": -1}})
 
     # The $project stage remains the same
     pipeline.append(
@@ -236,10 +241,8 @@ def get_events(
                 "_id": 0,
                 "eventId": {"$toString": "$_id"},
                 "type": "$type",
-                "start": "$timestamp",
-                "end": "$timestamp",
                 "cameraId": "$cameraId",
-                "imageBaseString": "$imageBaseString",
+                "s3ImageKey": "$s3ImageKey",
                 "timestamp": "$timestamp",
                 "processed_at": "$processed_at",
                 "detected_faces": "$detected_faces"

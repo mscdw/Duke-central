@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import Response, JSONResponse
 from typing import Dict, Any, List, Optional 
 from app.core.logging import get_logger
@@ -10,6 +10,7 @@ from app.services.event_services import (
     get_events_data,
     store_events_data,
     get_events_for_enrichment_data,
+    get_presigned_url_for_s3_key,
     update_events_with_media,
     get_events_for_facial_recognition_data,
     update_events_with_facial_recognition_data,
@@ -67,14 +68,15 @@ def get_events(
     start_date: str = Query(None, description="Start date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"),
     end_date: str = Query(None, description="End date in ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)"),
     types: Optional[List[str]] = Query(None, alias="type", description="Filter by one or more event types."),
+    camera_id: Optional[str] = Query(None, alias="cameraId", description="Filter events by a specific Camera ID."),
     # --- START OF CHANGE ---
     face_id: Optional[str] = Query(None, alias="faceId", description="Filter events by a specific Rekognition Face ID.")
     # --- END OF CHANGE ---
 ):
     """
-    Gets events within a date range, optionally filtered by type and a specific Face ID.
+    Gets events within a date range, optionally filtered by type, camera, and a specific Face ID.
     """
-    logger.info(f"Request received for events. Start: {start_date}, End: {end_date}, Types: {types}, FaceID: {face_id}")
+    logger.info(f"Request received for events. Start: {start_date}, End: {end_date}, Types: {types}, CameraID: {camera_id}, FaceID: {face_id}")
     
     start_dt = datetime.fromisoformat(start_date) if start_date else None
     end_dt = datetime.fromisoformat(end_date) if end_date else None
@@ -84,7 +86,8 @@ def get_events(
         start_date=start_dt, 
         end_date=end_dt, 
         types=types, 
-        face_id=face_id
+        face_id=face_id,
+        camera_id=camera_id
     )
     
     return JSONResponse(content=result if result is not None else [], status_code=200)
@@ -124,3 +127,20 @@ def update_events_with_recognition_route(request: EventFacialRecognitionUpdateRe
         return JSONResponse(content=resp, status_code=200)
     else:
         return JSONResponse(content={}, status_code=503)
+
+# ADD THIS NEW ENDPOINT
+@router.get("/get-presigned-url", response_model=str, summary="Get S3 Presigned URL")
+def get_presigned_url(s3_key: str = Query(..., alias="s3Key", description="The S3 object key for the image.")):
+    """
+    Generates a temporary, presigned URL to access an S3 object.
+    This allows the frontend to securely download and display images directly from S3.
+    """
+    if not s3_key:
+        raise HTTPException(status_code=400, detail="s3Key parameter is required.")
+
+    url = get_presigned_url_for_s3_key(s3_key)
+
+    if not url:
+        raise HTTPException(status_code=404, detail="Could not generate URL. The object may not exist or there was a server error.")
+
+    return url
