@@ -24,10 +24,12 @@ def store_events_data(request: EventRequest) -> Dict[str, Any] | None:
     if not request.events:
         logger.warning("Received request to store an empty list of events.")
         return {"message": "No events provided to store.", "stored_count": 0}
-
-    events_to_store: List[Dict[str, Any]] = [event for event in request.events]
-
+    
     try:
+        # Convert the list of Pydantic EventModel objects into a list of dictionaries
+        # that can be inserted into MongoDB. `exclude_none=True` is efficient.
+        events_to_store = [event.model_dump(exclude_none=True) for event in request.events]
+        
         stored_count = insert_events(events_to_store)
         logger.info(f"Successfully stored {stored_count} events.")
         return {"message": f"Successfully stored {stored_count} events.", "stored_count": stored_count}

@@ -78,17 +78,19 @@ def insert_events(events: List[Dict[str, Any]]) -> int:
         # Re-raise the exception so the calling service knows the operation failed.
         raise
 
-# --- NO CHANGES TO THIS FUNCTION ---
 def get_events_for_enrichment(event_type: str, limit: int) -> List[Dict[str, Any]]:
     """
-    Retrieves events that need media enrichment.
+    Retrieves events of a specific type that need media enrichment.
+    An event needs enrichment if it does not have an 's3ImageKey'.
     """
     collection = db["events"]
     query = {
         "type": event_type,
-        "$or": [
-            {"imageBaseString": None},
-        ],
+        # The event should not already have an S3 key.
+        "s3ImageKey": {"$exists": False},
+        # It must have the necessary fields to fetch media.
+        "cameraId": {"$exists": True, "$ne": None},
+        "timestamp": {"$exists": True, "$ne": None},
     }
     events_cursor = collection.find(query).limit(limit)
     events_list = []
@@ -98,25 +100,19 @@ def get_events_for_enrichment(event_type: str, limit: int) -> List[Dict[str, Any
         events_list.append(event)
     return events_list
 
-# --- NO CHANGES TO THIS FUNCTION ---
 def bulk_update_events_media(updates: List[Dict[str, Any]]) -> int:
     """
-    Performs a bulk update of events with media data.
+    Performs a bulk update of events with an s3ImageKey.
     """
     if not updates:
         return 0
     collection = db["events"]
     bulk_operations = []
     for update in updates:
-        set_payload = {}
-        if update.get("imageBaseString") is not None:
-            set_payload["imageBaseString"] = update["imageBaseString"]
-        if update.get("json") is not None:
-            set_payload["json"] = update["json"]
-
-        if set_payload:
-            if "eventId" in update and update["eventId"]:
-                bulk_operations.append(UpdateOne({"_id": ObjectId(update["eventId"])}, {"$set": set_payload}))
+        event_id = update.get("eventId")
+        s3_key = update.get("s3ImageKey")
+        if event_id and s3_key:
+            bulk_operations.append(UpdateOne({"_id": ObjectId(event_id)}, {"$set": {"s3ImageKey": s3_key}}))
 
     if not bulk_operations:
         return 0
@@ -126,22 +122,22 @@ def bulk_update_events_media(updates: List[Dict[str, Any]]) -> int:
 # --- 1. FIRST CHANGE: UPDATED QUERY LOGIC ---
 def get_events_for_facial_recognition(limit: int) -> List[Dict[str, Any]]:
     """
-    Retrieves events that have an image and have NOT yet been processed.
+    Retrieves events that have an image in S3 and have NOT yet been processed for faces.
     An event is considered "unprocessed" if the 'processed_at' field does not exist.
     """
     collection = db["events"]
     
     # The new query correctly identifies unprocessed events.
     query = {
-        # Condition 1: Must have an image to process.
-        "imageBaseString": {"$exists": True, "$ne": ""},
+        # Condition 1: Must have an image in S3 to process.
+        "s3ImageKey": {"$exists": True, "$ne": ""},
         
         # Condition 2: The 'processed_at' marker must NOT exist.
         "processed_at": {"$exists": False}
     }
 
-    # Only retrieve the fields necessary for the recognition process.
-    projection = {"_id": 1, "imageBaseString": 1}
+    # Retrieve the fields necessary for the recognition process: the ID and the S3 key.
+    projection = {"_id": 1, "s3ImageKey": 1}
     
     events_cursor = collection.find(query, projection).limit(limit)
 
@@ -283,4 +279,3 @@ def get_latest_event_timestamp(event_type: Optional[str] = None) -> Optional[str
     if latest_event:
         return latest_event.get("timestamp")
     return None
-

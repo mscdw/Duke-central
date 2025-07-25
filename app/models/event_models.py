@@ -4,31 +4,46 @@ from typing import List, Dict, Any, Optional, Literal
 # Import from 'appearance_models' which is in a different file, so this is OKAY.
 from app.models.appearance_models import FaceInfo
 
+class EventModel(BaseModel):
+    """
+    Defines the structure for a single event, used for validation in /store-events.
+    This model is flexible to allow for various event types from different sources.
+    """
+    # This is the new field sent by the scheduler for face events.
+    s3ImageKey: Optional[str] = Field(None, description="S3 key for an associated image, if any.")
 
-# --- UNCHANGED MODELS ---
-# These models are for other API endpoints and do not need to change.
+    # Standardized fields that should be present in most events.
+    type: str
+    timestamp: str
+    cameraId: Optional[str] = None
+    originatingServerId: Optional[str] = None
+    originatingEventId: Optional[Any] = None # Can be int or str depending on source
+    thisId: Optional[Any] = None
+
+    class Config:
+        # Allows other fields from the source system to be included without causing validation errors.
+        extra = "allow"
 
 class EventRequest(BaseModel):
     """
     Defines the expected request body for the /store-events endpoint.
     """
-    events: List[Dict[str, Any]]
-    class Config:
-        schema_extra = { "example": { "events": [{"eventType": "user_login", "userId": "user123", "timestamp": "2023-10-27T10:00:00Z"}] } }
+    events: List[EventModel]
 
 class EventMediaUpdate(BaseModel):
     """
     Defines the structure for a single event media update.
-    Requires at least one of imageBaseString or json.
+    Can be used to add an S3 key, a base64 image, or other JSON media data.
     """
     eventId: str
+    s3ImageKey: Optional[str] = None
     imageBaseString: Optional[str] = None
     json: Optional[str] = None
 
     @model_validator(mode='after')
     def check_media_present(self) -> 'EventMediaUpdate':
-        if self.imageBaseString is None and self.json is None:
-            raise ValueError("At least one of 'imageBaseString' or 'json' must be provided.")
+        if self.s3ImageKey is None and self.imageBaseString is None and self.json is None:
+            raise ValueError("At least one of 's3ImageKey', 'imageBaseString', or 'json' must be provided.")
         return self
 
 class EventMediaUpdateRequest(BaseModel):
