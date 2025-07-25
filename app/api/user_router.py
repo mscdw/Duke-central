@@ -1,13 +1,28 @@
 # --- CHANGED: Request is no longer needed for the database connection ---
 from fastapi import APIRouter, status, Body, HTTPException
+from botocore.exceptions import ClientError
 from ..models.user_models import UserModel
 from ..models.user_api_models import CreateUserRequest
-from ..services.user_services import create_new_user, get_user_by_face_id_data
+from ..services.user_services import create_new_user, get_user_by_face_id_data, get_all_users_data, get_rekognition_users_data
+from typing import List, Dict, Any
 
 router = APIRouter(
     prefix="/users",
     tags=["Users"],
 )
+
+@router.get(
+    "/",
+    response_description="Get all users",
+    response_model=List[UserModel],
+)
+def get_all_users_route():
+    """
+    Retrieves all user documents from the 'users' collection, sorted by most
+    recently created.
+    """
+    users = get_all_users_data()
+    return users
 
 @router.post(
     "/",
@@ -53,3 +68,26 @@ def get_user_by_face_id_route(face_id: str):
             detail=f"No user found with FaceId '{face_id}'"
         )
     return user
+
+
+@router.get(
+    "/from-rekognition/{collection_id}",
+    response_model=List[Dict[str, Any]],
+    response_description="Get all users directly from a Rekognition collection",
+    summary="List Rekognition Users"
+)
+def get_rekognition_users_route(collection_id: str):
+    """
+    Retrieves all user records directly from the specified AWS Rekognition collection.
+    This is useful for auditing and comparing against the central database.
+    """
+    try:
+        users = get_rekognition_users_data(collection_id)
+        return users
+    except ClientError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Error fetching users from Rekognition collection '{collection_id}': {e.response['Error']['Message']}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

@@ -2,7 +2,7 @@ import boto3
 import io
 from PIL import Image, ImageDraw
 from botocore.exceptions import ClientError
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from app.models.appearance_models import FaceInfo, BoundingBox
 from app.core.logging import get_logger
 from app.core.config import get_settings
@@ -53,6 +53,24 @@ def collection_exists(collection_id: str = DEFAULT_COLLECTION_ID) -> bool:
     except Exception as e:
         logger.error(f"Error checking if collection exists: {e}")
         return False
+
+def list_users(collection_id: str = DEFAULT_COLLECTION_ID) -> List[Dict[str, Any]]:
+    """
+    Lists all users from a Rekognition collection, handling pagination automatically.
+    Returns a list of user dictionaries.
+    """
+    all_users = []
+    try:
+        paginator = rekognition.get_paginator('list_users')
+        pages = paginator.paginate(CollectionId=collection_id)
+        for page in pages:
+            all_users.extend(page.get('Users', []))
+        logger.info(f"Found {len(all_users)} users in Rekognition collection '{collection_id}'.")
+        return all_users
+    except ClientError as e:
+        logger.error(f"Failed to list users from Rekognition collection '{collection_id}': {e.response['Error']['Message']}", exc_info=True)
+        raise # Re-raise so the API layer can handle it.
+
 
 def search_faces_by_image(image_bytes: bytes, collection_id: str = DEFAULT_COLLECTION_ID, face_match_threshold: float = 90.0, max_faces: int = 1):
     """Search for faces in the collection using an image."""

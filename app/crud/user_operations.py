@@ -1,6 +1,6 @@
 from pymongo.errors import DuplicateKeyError
 from fastapi import HTTPException, status
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # --- ADDED: Import the db instance directly, following the event_operations pattern ---
 from app.db.mongodb import db
@@ -31,6 +31,17 @@ def create_user_in_db(user: UserModel):
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A user with ID '{user.id}' already exists.",
         )
+
+
+def get_all_users_from_db() -> List[Dict[str, Any]]:
+    """
+    Retrieves all user documents from the 'users' collection, sorted by creation date.
+
+    Returns:
+        A list of user documents.
+    """
+    return list(db["users"].find({}).sort("createdAt", -1))
+
 
 
 def get_user_by_face_id(face_id: str) -> Optional[Dict[str, Any]]:
