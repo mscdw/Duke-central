@@ -91,6 +91,19 @@ class FaceProcessingResult(BaseModel):
         description="The final processing status for this specific face."
     )
     
+    # --- START OF FIX ---
+    # Add userId and faceId to capture the link to the user and the specific face.
+    # This aligns the model with the data being sent by Duke-Backend.
+    userId: Optional[str] = Field(
+        default=None,
+        description="The ID of the user associated with the matched/indexed face. Foreign key to the 'users' collection."
+    )
+    faceId: Optional[str] = Field(
+        default=None,
+        description="The Rekognition FaceId of the detected face."
+    )
+    # --- END OF FIX ---
+    
     face_info: Optional[FaceInfo] = Field(
         default=None,
         description="Biometric and reference info from search/index operations. Null if status is not 'matched' or 'indexed'."
@@ -149,17 +162,20 @@ class EventFacialRecognitionUpdateRequest(BaseModel):
                         "detected_faces": [
                             {
                                 "status": "matched",
+                                "userId": "user_jane_doe_12345",
+                                "faceId": "d2e6c886-d456-46e6-b379-4d2cebcd45d0",
                                 "face_info": {
-                                    "FaceId": "face-id-123",
+                                    "FaceId": "d2e6c886-d456-46e6-b379-4d2cebcd45d0",
                                     "BoundingBox": {"Width": 0.1, "Height": 0.2, "Left": 0.1, "Top": 0.1},
                                     "ImageId": "image-id-abc",
                                     "Confidence": 99.8
                                 },
                                 "rekognition_details": {
                                     "AgeRange": {"Low": 25, "High": 35},
-                                    "Emotions": [{"Type": "HAPPY", "Confidence": 98.7}]
+                                    "Emotions": [{"Type": "HAPPY", "Confidence": 98.7}],
                                 },
-                                "error_message": None
+                                "error_message": None,
+                                "failure_reason": None,
                             },
                         ]
                     },

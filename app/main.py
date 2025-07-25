@@ -9,6 +9,8 @@ from app.api.anomaly_endpoints import router as anomaly_endpoints_router
 from app.api.visualization_endpoints import router as visualization_endpoints_router
 # =============================================================
 from app.api.event_router import router as event_router
+from app.api.user_router import router as user_router
+
 
 from app.core.logging import get_logger
 
@@ -42,3 +44,7 @@ app.include_router(visualization_endpoints_router, tags=["Visualizations"])
 # --- ADDED: Include the new event router ---
 # This makes the /store-events endpoint live.
 app.include_router(event_router, tags=["Events"])
+
+# --- ADDED: Include the new user router ---
+# This makes the / endpoint live.
+app.include_router(user_router, tags=["Users"])
