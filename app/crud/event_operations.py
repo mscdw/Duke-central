@@ -82,19 +82,27 @@ def insert_events(events: List[Dict[str, Any]]) -> int:
 
 def get_events_for_enrichment(event_type: str, limit: int) -> List[Dict[str, Any]]:
     """
-    Retrieves events of a specific type that need media enrichment.
-    An event needs enrichment if it does not have an 's3ImageKey'.
+    Retrieves events of a specific type that need media enrichment, processing the oldest first.
+    An event needs enrichment if its s3ImageKey is missing or null.
     """
     collection = db["events"]
     query = {
         "type": event_type,
-        # The event should not already have an S3 key.
-        "s3ImageKey": {"$exists": False},
+        # An event needs enrichment if its s3ImageKey is missing OR null.
+        "$or": [
+            {"s3ImageKey": {"$exists": False}},
+            {"s3ImageKey": None}
+        ],
         # It must have the necessary fields to fetch media.
         "cameraId": {"$exists": True, "$ne": None},
         "timestamp": {"$exists": True, "$ne": None},
     }
-    events_cursor = collection.find(query).limit(limit)
+
+    # Add logging to see the exact query being used for diagnostics.
+    logger.info(f"Querying for events to enrich with query: {query}")
+
+    # Process oldest events first to clear any backlog.
+    events_cursor = collection.find(query).sort("timestamp", 1).limit(limit)
     events_list = []
     for event in events_cursor:
         if "_id" in event and isinstance(event["_id"], ObjectId):
@@ -270,7 +278,10 @@ def get_events(
                 "s3ImageKey": "$s3ImageKey",
                 "timestamp": "$timestamp",
                 "processed_at": "$processed_at",
-                "detected_faces": "$detected_faces"
+                "detected_faces": "$detected_faces",
+                "siteId": "$siteId",
+                "siteName": "$siteName",
+                "originatingServerName": "$originatingServerName",
             }
         }
     )
