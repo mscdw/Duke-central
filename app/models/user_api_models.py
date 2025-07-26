@@ -21,3 +21,13 @@ class CreateUserRequest(BaseModel):
             }
         }
 
+
+# class CreateUserRequest(BaseModel):
+#     id: str = Field(..., alias="_id")
+#     name: Optional[str] = None
+#     faceIds: List[str] = []
+
+
+class CompareUsersRequest(BaseModel):
+    userA_id: str
+    userB_id: str

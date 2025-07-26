@@ -2,8 +2,13 @@
 from fastapi import APIRouter, status, Body, HTTPException
 from botocore.exceptions import ClientError
 from ..models.user_models import UserModel
-from ..models.user_api_models import CreateUserRequest
-from ..services.user_services import create_new_user, get_user_by_face_id_data, get_all_users_data, get_rekognition_users_data
+from ..models.user_api_models import CreateUserRequest, CompareUsersRequest
+from ..services.user_services import (
+    create_new_user, get_user_by_face_id_data, 
+    get_all_users_data, get_rekognition_users_data,
+    get_user_by_id_data,
+    compare_users_data
+)
 from typing import List, Dict, Any
 
 router = APIRouter(
@@ -68,6 +73,39 @@ def get_user_by_face_id_route(face_id: str):
             detail=f"No user found with FaceId '{face_id}'"
         )
     return user
+
+
+@router.get(
+    "/{user_id}",
+    response_model=UserModel,
+    response_description="Get a single user by their ID",
+    summary="Get User by ID"
+)
+def get_user_by_id_route(user_id: str):
+    """
+    Retrieves a single user document by their unique ID.
+    """
+    user = get_user_by_id_data(user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID '{user_id}' not found"
+        )
+    return user
+
+
+@router.post(
+    "/compare",
+    response_description="Compare two users for similarity",
+    summary="Compare Users by Face"
+)
+def compare_users_route(request: CompareUsersRequest):
+    """
+    Compares two users by taking a representative face from each and
+    calculating the similarity score using AWS Rekognition's CompareFaces API.
+    """
+    result = compare_users_data(request.userA_id, request.userB_id)
+    return result
 
 
 @router.get(

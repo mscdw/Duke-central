@@ -71,6 +71,25 @@ def list_users(collection_id: str = DEFAULT_COLLECTION_ID) -> List[Dict[str, Any
         logger.error(f"Failed to list users from Rekognition collection '{collection_id}': {e.response['Error']['Message']}", exc_info=True)
         raise # Re-raise so the API layer can handle it.
 
+def compare_faces(source_image_bytes: bytes, target_image_bytes: bytes, similarity_threshold: float = 0.0):
+    """
+    Compares a face in the source image with the face in the target image.
+    Returns:
+        (response_dict, None) on success.
+        (None, error_message_string) on a handled ClientError.
+    """
+    try:
+        response = rekognition.compare_faces(
+            SourceImage={'Bytes': source_image_bytes},
+            TargetImage={'Bytes': target_image_bytes},
+            SimilarityThreshold=similarity_threshold
+        )
+        return response, None
+    except ClientError as e:
+        error_msg = e.response['Error']['Message']
+        logger.warning(f"CompareFaces failed with handled error: {error_msg}")
+        return None, error_msg
+
 
 def search_faces_by_image(image_bytes: bytes, collection_id: str = DEFAULT_COLLECTION_ID, face_match_threshold: float = 90.0, max_faces: int = 1):
     """Search for faces in the collection using an image."""

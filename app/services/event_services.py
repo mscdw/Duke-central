@@ -40,8 +40,8 @@ def store_events_data(request: EventRequest) -> Dict[str, Any] | None:
 
 
 def get_events_data(
-    start_date: Optional[datetime], 
-    end_date: Optional[datetime],
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
     types: Optional[List[str]] = None,
     face_id: Optional[str] = None,
     camera_id: Optional[str] = None
