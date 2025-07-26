@@ -10,7 +10,7 @@ from app.core.config import get_settings
 logger = get_logger("aws-services")
 settings = get_settings()
 
-DEFAULT_COLLECTION_ID = 'new-face-collection-2'
+DEFAULT_COLLECTION_ID = 'new-face-collection-11'
 
 rekognition = boto3.client("rekognition", region_name="us-east-2")
 
@@ -196,6 +196,46 @@ def save_cropped_face(image_bytes: bytes, bbox_normalized: BoundingBox, original
     except Exception as e:
         logger.error(f"An error occurred during the save_cropped_face process: {e}", exc_info=True)
 
+def associate_faces(user_id: str, face_ids: List[str], collection_id: str = DEFAULT_COLLECTION_ID):
+    """Associates a list of faces with a user in the Rekognition collection."""
+    try:
+        logger.info(f"Associating {len(face_ids)} faces with user '{user_id}'.")
+        response = rekognition.associate_faces(
+            CollectionId=collection_id,
+            UserId=user_id,
+            FaceIds=face_ids
+        )
+        logger.info(f"Successfully associated faces with user '{user_id}'. Response: {response}")
+        return response
+    except ClientError as e:
+        logger.error(f"Failed to associate faces with user '{user_id}': {e.response['Error']['Message']}", exc_info=True)
+        raise
+
+def disassociate_faces(user_id: str, face_ids: List[str], collection_id: str = DEFAULT_COLLECTION_ID):
+    """Disassociates a list of faces from a user in the Rekognition collection."""
+    try:
+        logger.info(f"Disassociating {len(face_ids)} faces from user '{user_id}'.")
+        response = rekognition.disassociate_faces(
+            CollectionId=collection_id,
+            UserId=user_id,
+            FaceIds=face_ids
+        )
+        logger.info(f"Successfully disassociated faces from user '{user_id}'. Response: {response}")
+        return response
+    except ClientError as e:
+        logger.error(f"Failed to disassociate faces from user '{user_id}': {e.response['Error']['Message']}", exc_info=True)
+        raise
+
+def delete_user(user_id: str, collection_id: str = DEFAULT_COLLECTION_ID):
+    """Deletes a user from the Rekognition collection."""
+    try:
+        logger.info(f"Deleting user '{user_id}' from Rekognition collection '{collection_id}'.")
+        response = rekognition.delete_user(CollectionId=collection_id, UserId=user_id)
+        logger.info(f"Successfully deleted user '{user_id}' from Rekognition. Response: {response}")
+        return response
+    except ClientError as e:
+        logger.error(f"Failed to delete user '{user_id}' from Rekognition: {e.response['Error']['Message']}", exc_info=True)
+        raise
 # --- S3-related functionality ---
 try:
     s3_client = boto3.client("s3", region_name=settings.AWS_REGION)

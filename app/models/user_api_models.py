@@ -31,3 +31,17 @@ class CreateUserRequest(BaseModel):
 class CompareUsersRequest(BaseModel):
     userA_id: str
     userB_id: str
+
+
+class MergeUsersRequest(BaseModel):
+    """Request model for merging two users."""
+    sourceUserId: str = Field(..., description="The ID of the user to merge from (will be deleted).")
+    targetUserId: str = Field(..., description="The ID of the user to merge into.")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "sourceUserId": "user_to_delete_123",
+                "targetUserId": "user_to_keep_456"
+            }
+        }

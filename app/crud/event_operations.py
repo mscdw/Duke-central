@@ -282,3 +282,25 @@ def get_latest_event_timestamp(event_type: Optional[str] = None) -> Optional[str
     if latest_event:
         return latest_event.get("timestamp")
     return None
+
+
+def update_event_user_id_in_db(source_user_id: str, target_user_id: str) -> int:
+    """
+    Finds all events associated with a source_user_id and updates them to the target_user_id.
+    This is used during a user merge operation.
+
+    Args:
+        source_user_id: The original user ID to find in 'detected_faces.userId'.
+        target_user_id: The new user ID to set.
+
+    Returns:
+        The number of documents modified.
+    """
+    logger.info(f"Updating event records from userId '{source_user_id}' to '{target_user_id}'.")
+    result = db["events"].update_many(
+        {"detected_faces.userId": source_user_id},
+        {"$set": {"detected_faces.$[elem].userId": target_user_id}},
+        array_filters=[{"elem.userId": source_user_id}]
+    )
+    logger.info(f"DB update result for repointing event userIds: modified_count={result.modified_count}")
+    return result.modified_count

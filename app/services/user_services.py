@@ -1,13 +1,18 @@
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from fastapi import HTTPException
 from io import BytesIO
 from PIL import Image
 import httpx
+from botocore.exceptions import ClientError
 
 from ..models.user_models import UserModel
 from ..models.user_api_models import CreateUserRequest
 # --- CHANGED: Import from the refactored user_operations.py ---
-from ..crud.user_operations import create_user_in_db, get_user_by_face_id, get_all_users_from_db, get_user_by_id
+from ..crud.user_operations import (
+    create_user_in_db, get_user_by_face_id, 
+    get_all_users_from_db, get_user_by_id,
+    add_faces_to_user_in_db, delete_user_from_db
+)
 from ..services import aws_services, event_services
 from ..models.aws_models import BoundingBox
 from ..core.logging import get_logger
@@ -148,3 +153,65 @@ def compare_users_data(user_a_id: str, user_b_id: str) -> Dict[str, Any]:
 
     match = response["FaceMatches"][0]
     return {"similarity": match.get("Similarity", 0.0), "sourceFaceMatch": True}
+
+
+def merge_users_data(source_user_id: str, target_user_id: str) -> Tuple[bool, str]:
+    """
+    Merges a source user into a target user.
+    1. Moves all faceIds from source to target in Rekognition.
+    2. Moves all faceIds from source to target in the database.
+    3. Deletes the source user from Rekognition.
+    4. Deletes the source user from the database.
+    """
+    logger.info(f"Starting merge of user '{source_user_id}' into '{target_user_id}'.")
+
+    # 1. Get user data from DB
+    source_user = get_user_by_id_data(source_user_id)
+    target_user = get_user_by_id_data(target_user_id)
+
+    if not source_user:
+        msg = f"Source user '{source_user_id}' not found."
+        logger.error(msg)
+        return False, msg
+    if not target_user:
+        msg = f"Target user '{target_user_id}' not found."
+        logger.error(msg)
+        return False, msg
+
+    source_face_ids = source_user.get("faceIds", [])
+    if not source_face_ids:
+        # If source has no faces, we can just delete it.
+        logger.info(f"Source user '{source_user_id}' has no faces to merge. Deleting source user.")
+        delete_user_from_db(source_user_id)
+        try:
+            aws_services.delete_user(source_user_id)
+        except ClientError as e:
+            # Log the error but don't fail the whole operation, as the DB part is done.
+            logger.warning(f"Could not delete source user '{source_user_id}' from Rekognition, but deleted from DB. Error: {e}")
+        return True, f"Source user '{source_user_id}' had no faces and was deleted."
+
+    try:
+        logger.info(f"Disassociating {len(source_face_ids)} faces from source user '{source_user_id}' in Rekognition.")
+        aws_services.disassociate_faces(source_user_id, source_face_ids)
+
+        logger.info(f"Associating {len(source_face_ids)} faces with target user '{target_user_id}' in Rekognition.")
+        aws_services.associate_faces(target_user_id, source_face_ids)
+
+        logger.info(f"Adding {len(source_face_ids)} faces to target user '{target_user_id}' in database.")
+        add_faces_to_user_in_db(target_user_id, source_face_ids)
+
+        logger.info(f"Updating all event records from source user '{source_user_id}' to target user '{target_user_id}'.")
+        event_services.update_event_user_id_data(source_user_id, target_user_id)
+
+        logger.info(f"Deleting source user '{source_user_id}' from Rekognition.")
+        aws_services.delete_user(source_user_id)
+
+        logger.info(f"Deleting source user '{source_user_id}' from database.")
+        delete_user_from_db(source_user_id)
+
+        logger.info(f"Successfully merged user '{source_user_id}' into '{target_user_id}'.")
+        return True, "Users merged successfully."
+    except (ClientError, Exception) as e:
+        error_message = f"An error occurred during merge: {getattr(e, 'response', {}).get('Error', {}).get('Message', str(e))}"
+        logger.error(error_message, exc_info=True)
+        return False, error_message

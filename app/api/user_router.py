@@ -2,12 +2,13 @@
 from fastapi import APIRouter, status, Body, HTTPException
 from botocore.exceptions import ClientError
 from ..models.user_models import UserModel
-from ..models.user_api_models import CreateUserRequest, CompareUsersRequest
+from ..models.user_api_models import CreateUserRequest, CompareUsersRequest, MergeUsersRequest
 from ..services.user_services import (
     create_new_user, get_user_by_face_id_data, 
     get_all_users_data, get_rekognition_users_data,
     get_user_by_id_data,
-    compare_users_data
+    compare_users_data,
+    merge_users_data
 )
 from typing import List, Dict, Any
 
@@ -106,6 +107,22 @@ def compare_users_route(request: CompareUsersRequest):
     """
     result = compare_users_data(request.userA_id, request.userB_id)
     return result
+
+
+@router.post(
+    "/merge",
+    response_description="Merge two users",
+    summary="Merge two user profiles"
+)
+def merge_users_route(request: MergeUsersRequest):
+    """
+    Merges two users. All faces from the source user are moved to the target user,
+    and the source user is deleted from both the central database and AWS Rekognition.
+    """
+    success, message = merge_users_data(request.sourceUserId, request.targetUserId)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    return {"message": message}
 
 
 @router.get(

@@ -6,7 +6,8 @@ from app.crud.event_operations import (
     get_events, 
     get_events_for_facial_recognition, 
     bulk_update_events_with_facial_recognition,
-    get_latest_event_timestamp  # <-- Add this import
+    get_latest_event_timestamp,
+    update_event_user_id_in_db
 )
 from app.services import aws_services
 from app.models.event_models import EventRequest, EventMediaUpdateRequest, EventFacialRecognitionUpdateRequest
@@ -141,3 +142,17 @@ def get_latest_event_timestamp_data(event_type: Optional[str] = None) -> Dict[st
 def get_presigned_url_for_s3_key(s3_key: str) -> Optional[str]:
     """Service layer function to generate a presigned URL for a given S3 key."""
     return aws_services.create_presigned_url(s3_key)
+
+
+def update_event_user_id_data(source_user_id: str, target_user_id: str) -> int:
+    """
+    Service layer function to update the userId in all relevant event documents
+    after a user merge.
+    """
+    try:
+        modified_count = update_event_user_id_in_db(source_user_id, target_user_id)
+        logger.info(f"Service successfully updated {modified_count} events to new userId '{target_user_id}'.")
+        return modified_count
+    except Exception as e:
+        logger.error(f"Could not update event userIds from '{source_user_id}' to '{target_user_id}'. Details: {e}", exc_info=True)
+        raise

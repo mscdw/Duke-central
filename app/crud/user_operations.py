@@ -70,3 +70,34 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     if user_doc:
         logger.info(f"Found user document for _id: {user_id}")
     return user_doc
+
+
+def add_faces_to_user_in_db(user_id: str, face_ids: List[str]) -> int:
+    """
+    Adds a list of face IDs to a user's 'faceIds' array in the database.
+    Ensures that no duplicate face IDs are added.
+
+    Args:
+        user_id: The _id of the user to update.
+        face_ids: A list of face IDs to add.
+
+    Returns:
+        The number of documents modified.
+    """
+    logger.info(f"Adding {len(face_ids)} faces to user '{user_id}' in DB.")
+    result = db["users"].update_one(
+        {"_id": user_id},
+        {"$addToSet": {"faceIds": {"$each": face_ids}}}
+    )
+    logger.info(f"DB update result for adding faces to user '{user_id}': modified_count={result.modified_count}")
+    return result.modified_count
+
+
+def delete_user_from_db(user_id: str) -> int:
+    """
+    Deletes a user document from the 'users' collection by its _id.
+    """
+    logger.info(f"Deleting user '{user_id}' from DB.")
+    result = db["users"].delete_one({"_id": user_id})
+    logger.info(f"DB delete result for user '{user_id}': deleted_count={result.deleted_count}")
+    return result.deleted_count
