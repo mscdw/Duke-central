@@ -47,7 +47,8 @@ def get_events_data(
     face_id: Optional[str] = None,
     camera_id: Optional[str] = None,
     user_id: Optional[str] = None,
-    user_id_only: bool = False
+    user_id_only: bool = False,
+    event_id: Optional[str] = None
 ) -> List[Dict[str, Any]] | None:
     """
     Retrieves events, optionally filtered by type, Face ID, Camera ID, User ID,
@@ -62,7 +63,8 @@ def get_events_data(
             face_id=face_id,
             camera_id=camera_id,
             user_id=user_id,
-            user_id_only=user_id_only
+            user_id_only=user_id_only,
+            event_id=event_id
         )
         logger.info(f"Retrieved {len(events)} events for query.")
         return events

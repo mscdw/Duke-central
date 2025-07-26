@@ -195,56 +195,69 @@ def get_events(
     user_id: Optional[str] = None,
     user_id_only: bool = False,
     include_events_without_image: bool = False,
+    event_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Retrieves events, optionally filtering by various criteria.
     """
     collection = db["events"]
     pipeline = []
-
-    pipeline.append({"$addFields": {"event_date": {"$toDate": "$timestamp"}}})
-
-    match_filter = {}
-
-    if types:
-        match_filter["type"] = {"$in": types}
+    
+    # If a specific eventId is provided, it's a direct lookup.
+    # This is much more efficient than applying all other filters.
+    if event_id:
+        try:
+            # The eventId from the API is a string, but it corresponds to the _id ObjectId.
+            obj_id = ObjectId(event_id)
+            pipeline.append({"$match": {"_id": obj_id}})
+        except Exception:
+            # If the event_id is not a valid ObjectId, no results will be found.
+            logger.warning(f"Invalid eventId format received: {event_id}. Must be a 24-character hex string.")
+            return []
     else:
-        match_filter["type"] = {"$in": ["DEVICE_CLASSIFIED_OBJECT_MOTION_START", "CUSTOM_APPEARANCE"]}
+        # Apply general filters if no specific eventId is given.
+        pipeline.append({"$addFields": {"event_date": {"$toDate": "$timestamp"}}})
 
-    date_filter = {}
-    if start_date:
-        date_filter["$gte"] = start_date
-    if end_date:
-        date_filter["$lte"] = end_date
+        match_filter = {}
 
-    if date_filter:
-        match_filter["event_date"] = date_filter
+        if types:
+            match_filter["type"] = {"$in": types}
+        else:
+            match_filter["type"] = {"$in": ["CUSTOM_APPEARANCE", "DEVICE_CLASSIFIED_OBJECT_MOTION_START", "DEVICE_CLASSIFIED_OBJECT_MOTION_STOP", "DEVICE_FACET_START", "DEVICE_FACET_STOP", "DEVICE_FACE_MATCH_START", "DEVICE_FACE_MATCH_STOP", "DEVICE_UNUSUAL_STARTED", "DEVICE_UNUSUAL_STOPPED"]}
 
-    if camera_id:
-        match_filter["cameraId"] = camera_id
+        date_filter = {}
+        if start_date:
+            date_filter["$gte"] = start_date
+        if end_date:
+            date_filter["$lte"] = end_date
 
-    if not include_events_without_image:
-        # Filter for events that have a non-empty s3ImageKey
-        match_filter["s3ImageKey"] = {"$exists": True, "$ne": None, "$ne": ""}
+        if date_filter:
+            match_filter["event_date"] = date_filter
 
-    if face_id:
-        # MongoDB's dot notation allows us to query for a value within an array of objects.
-        match_filter["detected_faces.face_info.FaceId"] = face_id
+        if camera_id:
+            match_filter["cameraId"] = camera_id
 
-    if user_id:
-        # Filter for events where at least one detected face has the specified userId
-        match_filter["detected_faces.userId"] = user_id
+        if not include_events_without_image:
+            # Filter for events that have a non-empty s3ImageKey
+            match_filter["s3ImageKey"] = {"$exists": True, "$ne": None, "$ne": ""}
 
-    if user_id_only:
-        # Filter for events that have at least one face with a non-null userId
-        match_filter["detected_faces.userId"] = {"$exists": True, "$ne": None}
-    # --- END OF CHANGE ---
+        if face_id:
+            # MongoDB's dot notation allows us to query for a value within an array of objects.
+            match_filter["detected_faces.face_info.FaceId"] = face_id
 
-    if match_filter:
-        pipeline.append({"$match": match_filter})
+        if user_id:
+            # Filter for events where at least one detected face has the specified userId
+            match_filter["detected_faces.userId"] = user_id
 
-    # Sort by most recent first
-    pipeline.append({"$sort": {"event_date": -1}})
+        if user_id_only:
+            # Filter for events that have at least one face with a non-null userId
+            match_filter["detected_faces.userId"] = {"$exists": True, "$ne": None}
+
+        if match_filter:
+            pipeline.append({"$match": match_filter})
+
+        # Sort by most recent first
+        pipeline.append({"$sort": {"event_date": -1}})
 
     # The $project stage remains the same
     pipeline.append(

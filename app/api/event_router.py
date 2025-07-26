@@ -72,15 +72,16 @@ def get_events(
     # --- START OF CHANGE ---
     face_id: Optional[str] = Query(None, alias="faceId", description="Filter events by a specific Rekognition Face ID."),
     user_id: Optional[str] = Query(None, alias="userId", description="Filter events by a specific User ID."),
-    user_id_only: bool = Query(False, alias="userIdOnly", description="If true, only return events that have a userId in detected_faces.")
+    user_id_only: bool = Query(False, alias="userIdOnly", description="If true, only return events that have a userId in detected_faces."),
+    event_id: Optional[str] = Query(None, alias="eventId", description="Filter by a specific Event ID.")
     # --- END OF CHANGE ---
 ):
     """
     Gets events within a date range, with optional filters.
     """
     logger.info(
-        f"Request for events. Start: {start_date}, End: {end_date}, Types: {types}, "
-        f"CameraID: {camera_id}, FaceID: {face_id}, UserID: {user_id}, UserIDOnly: {user_id_only}"
+        f"Request for events. Start: {start_date}, End: {end_date}, Types: {types}, CameraID: {camera_id}, "
+        f"FaceID: {face_id}, UserID: {user_id}, UserIDOnly: {user_id_only}, EventID: {event_id}"
     )
     
     start_dt = datetime.fromisoformat(start_date) if start_date else None
@@ -94,7 +95,8 @@ def get_events(
         face_id=face_id,
         camera_id=camera_id,
         user_id=user_id,
-        user_id_only=user_id_only
+        user_id_only=user_id_only,
+        event_id=event_id
     )
     
     return JSONResponse(content=result if result is not None else [], status_code=200)

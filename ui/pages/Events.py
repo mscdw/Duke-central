@@ -81,7 +81,7 @@ with col2:
 
 st.subheader("2. Apply Filters")
 
-type_options = ["DEVICE_CLASSIFIED_OBJECT_MOTION_START", "CUSTOM_APPEARANCE"]
+type_options = ["CUSTOM_APPEARANCE", "DEVICE_CLASSIFIED_OBJECT_MOTION_START", "DEVICE_CLASSIFIED_OBJECT_MOTION_STOP", "DEVICE_FACET_START", "DEVICE_FACET_STOP", "DEVICE_FACE_MATCH_START", "DEVICE_FACE_MATCH_STOP", "DEVICE_UNUSUAL_STARTED", "DEVICE_UNUSUAL_STOPPED"]
 selected_types = st.multiselect(
     "Filter by Event Type:",
     options=type_options,
@@ -89,6 +89,7 @@ selected_types = st.multiselect(
 )
 
 camera_id_filter = st.text_input("Filter by Camera ID:")
+event_id_filter = st.text_input("Filter by a specific Event ID:")
 
 st.subheader("3. Filter by Face Recognition Results (Optional)")
 
@@ -123,6 +124,9 @@ if st.button("Get Events", type="primary"):
     
     if camera_id_filter:
         params['cameraId'] = camera_id_filter
+
+    if event_id_filter:
+        params['eventId'] = event_id_filter
     
     if face_id_filter:
         params['faceId'] = face_id_filter
