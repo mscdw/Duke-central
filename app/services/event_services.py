@@ -45,19 +45,24 @@ def get_events_data(
     end_date: Optional[datetime] = None,
     types: Optional[List[str]] = None,
     face_id: Optional[str] = None,
-    camera_id: Optional[str] = None
+    camera_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    user_id_only: bool = False
 ) -> List[Dict[str, Any]] | None:
     """
-    Retrieves events, optionally filtered by type, Face ID, and Camera ID, from the CRUD layer.
+    Retrieves events, optionally filtered by type, Face ID, Camera ID, User ID,
+    and whether they have a user ID, from the CRUD layer.
     """
     try:
         # Pass all filter parameters down to the CRUD function
         events = get_events(
-            start_date=start_date, 
-            end_date=end_date, 
-            types=types, 
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
             face_id=face_id,
-            camera_id=camera_id
+            camera_id=camera_id,
+            user_id=user_id,
+            user_id_only=user_id_only
         )
         logger.info(f"Retrieved {len(events)} events for query.")
         return events

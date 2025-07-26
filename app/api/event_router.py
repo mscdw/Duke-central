@@ -70,24 +70,31 @@ def get_events(
     types: Optional[List[str]] = Query(None, alias="type", description="Filter by one or more event types."),
     camera_id: Optional[str] = Query(None, alias="cameraId", description="Filter events by a specific Camera ID."),
     # --- START OF CHANGE ---
-    face_id: Optional[str] = Query(None, alias="faceId", description="Filter events by a specific Rekognition Face ID.")
+    face_id: Optional[str] = Query(None, alias="faceId", description="Filter events by a specific Rekognition Face ID."),
+    user_id: Optional[str] = Query(None, alias="userId", description="Filter events by a specific User ID."),
+    user_id_only: bool = Query(False, alias="userIdOnly", description="If true, only return events that have a userId in detected_faces.")
     # --- END OF CHANGE ---
 ):
     """
-    Gets events within a date range, optionally filtered by type, camera, and a specific Face ID.
+    Gets events within a date range, with optional filters.
     """
-    logger.info(f"Request received for events. Start: {start_date}, End: {end_date}, Types: {types}, CameraID: {camera_id}, FaceID: {face_id}")
+    logger.info(
+        f"Request for events. Start: {start_date}, End: {end_date}, Types: {types}, "
+        f"CameraID: {camera_id}, FaceID: {face_id}, UserID: {user_id}, UserIDOnly: {user_id_only}"
+    )
     
     start_dt = datetime.fromisoformat(start_date) if start_date else None
     end_dt = datetime.fromisoformat(end_date) if end_date else None
 
-    # Pass the new 'face_id' parameter down to the service layer function
+    # Pass all parameters down to the service layer function
     result = get_events_data(
         start_date=start_dt, 
         end_date=end_dt, 
         types=types, 
         face_id=face_id,
-        camera_id=camera_id
+        camera_id=camera_id,
+        user_id=user_id,
+        user_id_only=user_id_only
     )
     
     return JSONResponse(content=result if result is not None else [], status_code=200)

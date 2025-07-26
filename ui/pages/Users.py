@@ -1,10 +1,10 @@
 import streamlit as st
 import httpx
-from datetime import datetime
 import os, sys
 from PIL import Image, ImageDraw, ImageFont
 import io
-
+import pandas as pd
+from datetime import datetime
 
 # --- Configuration ---
 # Use an environment variable for the API URL, with a sensible default for local dev.
@@ -30,6 +30,53 @@ def get_all_users():
     except Exception as e:
         st.error(f"An error occurred while fetching users: {e}")
     return []
+
+@st.cache_data(ttl=60)
+def get_all_events_and_stats():
+    """Fetches all events with a userId and computes stats for each user."""
+    try:
+        url = f"{CENTRAL_API_URL}/get-events"
+        params = {"userIdOnly": True}
+        response = httpx.get(url, params=params, timeout=120) # Longer timeout for potentially large payload
+        response.raise_for_status()
+        events = response.json()
+        if not events:
+            return pd.DataFrame()
+
+        # A single event can have faces associated with different users.
+        # We need to create a separate record for each unique user sighting in an event.
+        user_event_records = []
+        for event in events:
+            timestamp = event.get('timestamp')
+            if not timestamp:
+                continue
+            
+            seen_users_in_event = set()
+            for face in event.get('detected_faces', []):
+                user_id = face.get('userId')
+                if user_id and user_id not in seen_users_in_event:
+                    user_event_records.append({
+                        'userId': user_id,
+                        'timestamp': timestamp
+                    })
+                    seen_users_in_event.add(user_id)
+        
+        if not user_event_records:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(user_event_records)
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
+        df.dropna(subset=['timestamp'], inplace=True)
+
+        stats = df.groupby('userId').agg(
+            first_seen=('timestamp', 'min'),
+            last_seen=('timestamp', 'max'),
+            total_occurrences=('timestamp', 'count')
+        ).reset_index()
+        return stats
+    except Exception as e:
+        st.error(f"Failed to fetch event stats: {e}")
+        return pd.DataFrame()
 
 def update_user_name(user_id: str, new_name: str):
     """Updates a user's name via the API."""
@@ -65,6 +112,24 @@ def merge_users_api(source_user_id: str, target_user_id: str):
         error_message = f"An unexpected error occurred: {e}"
         st.error(error_message)
         return False, error_message
+
+@st.cache_data(ttl=60)
+def get_events_for_user(user_id: str):
+    """Fetches all events for a single user."""
+    if not user_id:
+        return []
+    try:
+        url = f"{CENTRAL_API_URL}/get-events"
+        params = {"userId": user_id}
+        response = httpx.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        st.error(f"API Error fetching events for {user_id}: {e.response.status_code} - {e.response.text}")
+        return []
+    except Exception as e:
+        st.error(f"Failed to fetch events for user {user_id}: {e}")
+        return []
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour
 def get_cropped_face_image(face_id: str):
@@ -159,6 +224,24 @@ def create_face_collage(face_ids: list, max_faces: int = 5) -> Image.Image | Non
 
     return collage
 
+def draw_single_bounding_box(image: Image.Image, face_details: dict) -> Image.Image:
+    """Draws a single bounding box for the matched face."""
+    if not face_details or "BoundingBox" not in face_details:
+        return image
+
+    img_with_box = image.convert("RGB")
+    draw = ImageDraw.Draw(img_with_box)
+    img_width, img_height = img_with_box.size
+    
+    bbox = face_details["BoundingBox"]
+    left = int(bbox['Left'] * img_width)
+    top = int(bbox['Top'] * img_height)
+    right = int(left + (bbox['Width'] * img_width))
+    bottom = int(top + (bbox['Height'] * img_height))
+
+    draw.rectangle([left, top, right, bottom], outline="#FF4B4B", width=5)
+    return img_with_box
+
 def draw_bounding_boxes(image: Image.Image, faces: list, target_face_id: str) -> Image.Image:
     """Draws bounding boxes on an image, highlighting the target face."""
     img_with_boxes = image.convert("RGB")
@@ -251,38 +334,65 @@ def get_annotated_and_cropped_image(face_id: str):
 
 def render_user_list_view(users):
     """Renders the main dashboard of all users."""
+    # --- Get event stats and merge with user data ---
+    with st.spinner("Calculating user statistics from events..."):
+        event_stats_df = get_all_events_and_stats()
+
+    users_with_stats = []
+    if not event_stats_df.empty:
+        users_df = pd.DataFrame(users)
+        merged_df = pd.merge(users_df, event_stats_df, left_on='_id', right_on='userId', how='left')
+        merged_df['total_occurrences'] = merged_df['total_occurrences'].fillna(0).astype(int)
+        users_with_stats = merged_df.to_dict('records')
+    else:
+        users_with_stats = users
+        for user in users_with_stats:
+            user.update({'first_seen': None, 'last_seen': None, 'total_occurrences': 0})
     # --- Search and Sort Controls ---
     st.header("Filters & Sorting")
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([2, 1])
     with col1:
         search_term = st.text_input(
-            "Search by User ID or Name",
-            placeholder="Enter a user ID or name to filter..."
+            "Search by Name",
+            placeholder="Filter users by name..."
         ).lower()
+
+        user_id_options = sorted([u.get('_id') for u in users if u.get('_id')])
+        selected_user_ids = st.multiselect(
+            "Filter by User ID",
+            options=user_id_options,
+            placeholder="Select one or more user IDs..."
+        )
     with col2:
         sort_key = st.selectbox(
             "Sort by",
-            options=["createdAt", "faceCount", "_id", "name"],
-            format_func=lambda x: {"createdAt": "Creation Date", "faceCount": "Face Count", "_id": "User ID", "name": "Name"}[x]
+            options=["createdAt", "faceCount", "total_occurrences", "last_seen", "_id", "name"],
+            format_func=lambda x: {
+                "createdAt": "Creation Date", 
+                "faceCount": "Face Count", 
+                "total_occurrences": "Total Occurrences",
+                "last_seen": "Last Seen",
+                "_id": "User ID", 
+                "name": "Name"
+            }[x]
         )
-        sort_ascending = st.toggle("Ascending", value=False if sort_key == "createdAt" else True)
+        sort_ascending = st.toggle("Ascending", value=False if sort_key in ["createdAt", "last_seen"] else True)
 
     # --- Filtering Logic ---
+    filtered_users = users_with_stats
     if search_term:
-        filtered_users = [
-            user for user in users
-            if search_term in user.get('_id', '').lower() or \
-               search_term in user.get('name', 'N/A').lower()
-        ]
-    else:
-        filtered_users = users
+        filtered_users = [u for u in filtered_users if search_term in u.get('name', 'N/A').lower()]
+    if selected_user_ids:
+        filtered_users = [u for u in filtered_users if u.get('_id') in selected_user_ids]
 
     # --- Sorting Logic ---
-    for user in filtered_users:
-        user['faceCount'] = len(user.get('faceIds', []))
+    for u in filtered_users:
+        u['faceCount'] = len(u.get('faceIds', []))
 
     filtered_users.sort(
-        key=lambda u: u.get(sort_key) or (0 if sort_key == 'faceCount' else ''),
+        key=lambda u: u.get(sort_key) or (
+            datetime.min if sort_key in ['createdAt', 'last_seen', 'first_seen'] else (0 if sort_key in ['faceCount', 'total_occurrences'] else '')
+        ),
         reverse=not sort_ascending
     )
 
@@ -295,6 +405,9 @@ def render_user_list_view(users):
         name = user.get('name', 'N/A')
         face_ids = user.get('faceIds', [])
         face_count = user.get('faceCount', 0)
+        total_occurrences = user.get('total_occurrences', 0)
+        first_seen = user.get('first_seen')
+        last_seen = user.get('last_seen')
 
         with st.container(border=True):
             col1, col2 = st.columns([1, 2])
@@ -302,6 +415,9 @@ def render_user_list_view(users):
                 st.subheader(name if name != 'N/A' else f"User {user_id[:8]}...")
                 st.markdown(f"**ID:** `{user_id}`")
                 st.markdown(f"**Faces Indexed:** {face_count}")
+                st.markdown(f"**Total Occurrences:** {total_occurrences}")
+                st.markdown(f"**First Seen:** {first_seen.strftime('%Y-%m-%d %H:%M') if pd.notna(first_seen) else 'N/A'}")
+                st.markdown(f"**Last Seen:** {last_seen.strftime('%Y-%m-%d %H:%M') if pd.notna(last_seen) else 'N/A'}")
 
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
@@ -376,6 +492,53 @@ def render_user_details_view(user_data):
                 else:
                     error_msg = image_data.get("error", "Unknown error") if image_data else "Failed to load"
                     st.error(f"Could not load image: {error_msg}")
+    
+    st.divider()
+    st.subheader("📅 All Occurrences")
+    
+    with st.spinner("Loading all events for this user..."):
+        events = get_events_for_user(user_id)
+
+    if not events:
+        st.info("No occurrence data found for this user.")
+    else:
+        # The event model uses 'timestamp'
+        events.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        st.info(f"Found {len(events)} total occurrences.")
+
+        for event in events:
+            with st.container(border=True):
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    s3_key = event.get("s3ImageKey")
+                    if s3_key:
+                        try:
+                            presigned_url_req = f"{CENTRAL_API_URL}/get-presigned-url?s3Key={s3_key}"
+                            url_response = httpx.get(presigned_url_req, timeout=15)
+                            url_response.raise_for_status()
+                            presigned_url = url_response.json()
+                            
+                            image_response = httpx.get(presigned_url, timeout=30)
+                            image_response.raise_for_status()
+                            img = Image.open(io.BytesIO(image_response.content))
+                            
+                            # Find the matched face in detected_faces to draw its bounding box
+                            matched_face = next((f for f in event.get("detected_faces", []) if f.get("userId") == user_id), None)
+                            if matched_face and matched_face.get("rekognition_details"):
+                                img_with_box = draw_single_bounding_box(img, matched_face.get("rekognition_details"))
+                                st.image(img_with_box, use_container_width=True)
+                            else:
+                                st.image(img, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Could not load image: {e}")
+                with col2:
+                    st.markdown(f"**Event Time:** `{event.get('timestamp', 'N/A')}`")
+                    st.markdown(f"**Camera:** `{event.get('cameraId', 'N/A')}`")
+                    st.markdown(f"**Site:** `{event.get('siteName', 'N/A')}`")
+                    matched_face = next((f for f in event.get("detected_faces", []) if f.get("userId") == user_id), None)
+                    if matched_face:
+                        confidence = matched_face.get("face_info", {}).get("Similarity", 0)
+                        st.markdown(f"**Match Similarity:** `{confidence:.2f}%`")
 
 def render_merge_view(source_user, all_users):
     """Renders the UI for merging two users."""

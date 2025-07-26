@@ -191,6 +191,9 @@ def get_events(
     types: Optional[List[str]] = None,
     camera_id: Optional[str] = None,
     face_id: Optional[str] = None,
+    # --- START OF CHANGE ---
+    user_id: Optional[str] = None,
+    user_id_only: bool = False,
     include_events_without_image: bool = False,
 ) -> List[Dict[str, Any]]:
     """
@@ -227,6 +230,15 @@ def get_events(
     if face_id:
         # MongoDB's dot notation allows us to query for a value within an array of objects.
         match_filter["detected_faces.face_info.FaceId"] = face_id
+
+    if user_id:
+        # Filter for events where at least one detected face has the specified userId
+        match_filter["detected_faces.userId"] = user_id
+
+    if user_id_only:
+        # Filter for events that have at least one face with a non-null userId
+        match_filter["detected_faces.userId"] = {"$exists": True, "$ne": None}
+    # --- END OF CHANGE ---
 
     if match_filter:
         pipeline.append({"$match": match_filter})
